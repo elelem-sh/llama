@@ -34,11 +34,12 @@ run("cmake", "-S", VENDOR, "-B", BUILD_DIR,
     "-DCMAKE_INSTALL_RPATH=$ORIGIN",
     "-DGGML_VULKAN=OFF",
     "-DLLAMA_CURL=OFF",
+    "-DLLAMA_BUILD_COMMON=ON", # common_chat: chat templates + tool-call parsing
     "-DLLAMA_BUILD_TESTS=OFF",
     "-DLLAMA_BUILD_EXAMPLES=OFF",
     "-DLLAMA_BUILD_TOOLS=OFF",
     "-DLLAMA_BUILD_SERVER=OFF")
-run("cmake", "--build", BUILD_DIR, "--target", "llama", "--parallel")
+run("cmake", "--build", BUILD_DIR, "--target", "llama", "llama-common", "--parallel")
 
 # 2. Copy the shared objects (preserving SONAME symlinks) next to where the shim
 #    will live, so the shim's $ORIGIN rpath resolves libllama/libggml at runtime.
@@ -51,9 +52,11 @@ cxx = ENV["CXX"] || "c++"
 run(cxx, "-std=c++17", "-O2", "-shared", "-fPIC",
     "-I", File.join(VENDOR, "include"),
     "-I", File.join(VENDOR, "ggml", "include"),
+    "-I", File.join(VENDOR, "common"),   # chat.h (common_chat)
+    "-I", File.join(VENDOR, "vendor"),   # nlohmann/json.hpp
     File.join(EXT_DIR, "elelem_llama.cpp"),
     "-o", File.join(NATIVE, "libelelem_llama.so"),
-    "-L", libdir, "-lllama",
+    "-L", libdir, "-lllama-common", "-lllama",
     "-Wl,-rpath,$ORIGIN")
 
 # 4. Stub Makefile so `make` / `make install` succeed (work is already done).

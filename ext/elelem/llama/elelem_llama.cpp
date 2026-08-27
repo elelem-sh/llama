@@ -1,66 +1,101 @@
-// Thin, stable C façade over llama.cpp for in-process inference from Ruby (Fiddle).
-// All volatile by-value structs (llama_model_params, llama_context_params,
-// llama_batch, ...) are handled here in C, compiled against the vendored llama.h,
-// so Ruby only ever sees simple, stable signatures that don't change when
-// llama.cpp bumps. Model stays resident; a fresh context per generate call keeps
-// each request stateless (no KV bleed between turns).
+// Thin, stable C façade over llama.cpp + its common_chat layer, for in-process
+// inference from Ruby (Fiddle). All volatile C++/by-value types are handled here,
+// compiled against the vendored headers, so Ruby only sees simple signatures:
+// JSON in (OpenAI-style messages + tools), JSON out (content + tool_calls). The
+// model + chat templates are opened once and kept resident on an opaque handle; a
+// fresh context per generate keeps each request statelessly isolated.
 #include "llama.h"
+#include "chat.h"
+#include <nlohmann/json.hpp>
+#include <algorithm>
 #include <string>
 #include <vector>
 
+using json = nlohmann::ordered_json;
+
 extern "C" {
 
-typedef void (*el_token_cb)(const char *piece);
+struct el_handle {
+    llama_model *model;
+    common_chat_templates_ptr tmpls;
+    int n_ctx;
+    int n_threads;
+};
 
 static bool g_backend = false;
 
-// Load a model and keep it resident. n_gpu_layers 0 = CPU. Returns model* or NULL.
-void *el_open(const char *path, int n_gpu_layers) {
+void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads) {
     if (!g_backend) { llama_backend_init(); g_backend = true; }
+
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = n_gpu_layers;
-    return (void *) llama_model_load_from_file(path, mp);
+    llama_model *model = llama_model_load_from_file(path, mp);
+    if (!model) return nullptr;
+
+    return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads};
 }
 
-// Render the message array through the model's chat template, then stream the
-// generated pieces to cb. Returns tokens generated, or -1 on error.
-int el_generate(void *model_, const char **roles, const char **contents, int n_msgs,
-                int n_ctx, int n_threads, int max_tokens, el_token_cb cb) {
-    llama_model *model = (llama_model *) model_;
-    const llama_vocab *vocab = llama_model_get_vocab(model);
-
-    std::vector<llama_chat_message> msgs(n_msgs);
-    for (int i = 0; i < n_msgs; i++) { msgs[i].role = roles[i]; msgs[i].content = contents[i]; }
-
-    std::string text;
-    const char *tmpl = llama_model_chat_template(model, nullptr);
-    if (tmpl && n_msgs > 0) {
-        int need = llama_chat_apply_template(tmpl, msgs.data(), n_msgs, true, nullptr, 0);
-        if (need > 0) {
-            std::vector<char> buf(need);
-            int n = llama_chat_apply_template(tmpl, msgs.data(), n_msgs, true, buf.data(), (int32_t) buf.size());
-            if (n > 0) text.assign(buf.data(), n);
+static std::vector<common_chat_msg> build_msgs(const json &arr) {
+    std::vector<common_chat_msg> out;
+    for (const auto &m : arr) {
+        common_chat_msg cm;
+        cm.role = m.value("role", "user");
+        cm.content = m.value("content", "");
+        cm.tool_name = m.value("tool_name", "");
+        cm.tool_call_id = m.value("tool_call_id", "");
+        if (m.contains("tool_calls")) {
+            for (const auto &tc : m["tool_calls"]) {
+                common_chat_tool_call c;
+                c.id = tc.value("id", "");
+                c.name = tc.value("name", "");
+                if (tc.contains("arguments")) {
+                    const auto &a = tc["arguments"];
+                    c.arguments = a.is_string() ? a.get<std::string>() : a.dump();
+                }
+                cm.tool_calls.push_back(c);
+            }
         }
+        out.push_back(cm);
     }
-    if (text.empty()) {  // no template: crude fallback
-        for (int i = 0; i < n_msgs; i++) { text += roles[i]; text += ": "; text += contents[i]; text += "\n"; }
-        text += "assistant:";
+    return out;
+}
+
+static std::vector<common_chat_tool> build_tools(const json &arr) {
+    std::vector<common_chat_tool> out;
+    for (const auto &t : arr) {
+        const json &fn = t.contains("function") ? t["function"] : t;
+        common_chat_tool ct;
+        ct.name = fn.value("name", "");
+        ct.description = fn.value("description", "");
+        ct.parameters = fn.contains("parameters") ? fn["parameters"].dump() : "{}";
+        out.push_back(ct);
     }
+    return out;
+}
+
+// Returns a JSON string {"content": "...", "tool_calls": [{id,name,arguments}]}.
+// The buffer is valid until the next el_generate call on this thread.
+const char *el_generate(void *handle, const char *messages_json, const char *tools_json, int max_tokens) {
+    auto *h = (el_handle *) handle;
+    const llama_vocab *vocab = llama_model_get_vocab(h->model);
+
+    common_chat_templates_inputs inputs;
+    inputs.messages = build_msgs(json::parse(messages_json));
+    if (tools_json && *tools_json) inputs.tools = build_tools(json::parse(tools_json));
+    inputs.add_generation_prompt = true;
+    inputs.use_jinja = true;
+    common_chat_params cparams = common_chat_templates_apply(h->tmpls.get(), inputs);
+
+    json result;
+    result["content"] = "";
+    result["tool_calls"] = json::array();
 
     llama_context_params cp = llama_context_default_params();
-    cp.n_ctx = (uint32_t) n_ctx;
-    cp.n_threads = n_threads;
-    cp.n_threads_batch = n_threads;
-    llama_context *ctx = llama_init_from_model(model, cp);
-    if (!ctx) return -1;
-
-    int n_prompt = -llama_tokenize(vocab, text.c_str(), (int32_t) text.size(), nullptr, 0, true, true);
-    std::vector<llama_token> tokens(n_prompt);
-    if (llama_tokenize(vocab, text.c_str(), (int32_t) text.size(), tokens.data(),
-                       (int32_t) tokens.size(), true, true) < 0) {
-        llama_free(ctx);
-        return -1;
-    }
+    cp.n_ctx = (uint32_t) h->n_ctx;
+    cp.n_threads = h->n_threads;
+    cp.n_threads_batch = h->n_threads;
+    llama_context *ctx = llama_init_from_model(h->model, cp);
+    if (!ctx) { static thread_local std::string e; e = result.dump(); return e.c_str(); }
 
     llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
@@ -68,27 +103,82 @@ int el_generate(void *model_, const char **roles, const char **contents, int n_m
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-    llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t) tokens.size());
+    const std::string &prompt = cparams.prompt;
+    int n_prompt = -llama_tokenize(vocab, prompt.c_str(), (int32_t) prompt.size(), nullptr, 0, true, true);
+    std::vector<llama_token> tokens(n_prompt);
+    llama_tokenize(vocab, prompt.c_str(), (int32_t) prompt.size(), tokens.data(), (int32_t) tokens.size(), true, true);
+
+    // Ingest the prompt in n_batch-sized chunks (a full prompt commonly exceeds one
+    // batch, which llama_decode asserts against).
+    const int n_batch = (int) llama_n_batch(ctx);
+    for (int i = 0; i < n_prompt; i += n_batch) {
+        int n = std::min(n_batch, n_prompt - i);
+        if (llama_decode(ctx, llama_batch_get_one(tokens.data() + i, n)) != 0) break;
+    }
+
+    std::string output;
     llama_token cur = 0;
     char piece[512];
-    int generated = 0;
-
-    for (int i = 0; i < max_tokens; i++) {
-        if (llama_decode(ctx, batch) != 0) break;
+    for (int t = 0; t < max_tokens; t++) {
         llama_token id = llama_sampler_sample(smpl, ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
         int np = llama_token_to_piece(vocab, id, piece, (int32_t) sizeof(piece), 0, true);
-        if (np > 0 && cb) { std::string s(piece, np); cb(s.c_str()); }
-        generated++;
-        cur = id;                                   // must outlive the decode below
-        batch = llama_batch_get_one(&cur, 1);
+        if (np > 0) output.append(piece, np);
+        cur = id;
+        if (llama_decode(ctx, llama_batch_get_one(&cur, 1)) != 0) break;
     }
 
     llama_sampler_free(smpl);
     llama_free(ctx);
-    return generated;
+
+    common_chat_parser_params pp;
+    pp.format = cparams.format;
+    common_chat_msg parsed = common_chat_parse(output, false, pp);
+
+    // Lenient fallback: small/quantized models often emit a bare {"name","arguments"}
+    // tool-call JSON (frequently fenced) instead of the template's exact tag syntax,
+    // so the strict parser misses it. If tools were offered and nothing parsed, pull
+    // out the first JSON object that names a real tool.
+    if (parsed.tool_calls.empty() && !inputs.tools.empty()) {
+        size_t a = output.find('{'), b = output.rfind('}');
+        if (a != std::string::npos && b != std::string::npos && b > a) {
+            try {
+                json j = json::parse(output.substr(a, b - a + 1));
+                std::string name = j.value("name", "");
+                bool known = false;
+                for (const auto &tool : inputs.tools) known |= (tool.name == name);
+                if (known && j.contains("arguments")) {
+                    common_chat_tool_call tc;
+                    tc.name = name;
+                    tc.arguments = j["arguments"].is_string() ? j["arguments"].get<std::string>() : j["arguments"].dump();
+                    parsed.tool_calls.push_back(tc);
+                    parsed.content.clear();
+                }
+            } catch (...) { /* not a tool call; leave content as-is */ }
+        }
+    }
+
+    result["content"] = parsed.content;
+    int i = 0;
+    for (const auto &tc : parsed.tool_calls) {
+        result["tool_calls"].push_back({
+            {"id", tc.id.empty() ? "call_" + std::to_string(i) : tc.id},
+            {"name", tc.name},
+            {"arguments", tc.arguments}
+        });
+        i++;
+    }
+
+    static thread_local std::string buf;
+    buf = result.dump();
+    return buf.c_str();
 }
 
-void el_close(void *model) { if (model) llama_model_free((llama_model *) model); }
+void el_close(void *handle) {
+    auto *h = (el_handle *) handle;
+    if (!h) return;
+    llama_model_free(h->model);
+    delete h;
+}
 
 }  // extern "C"
