@@ -13,6 +13,12 @@ VENDOR    = File.join(GEM_ROOT, "vendor", "llama.cpp")
 BUILD_DIR = File.join(EXT_DIR, "build")
 NATIVE    = File.join(GEM_ROOT, "lib", "elelem", "native")
 
+# GPU offload is opt-in: ELELEM_GGML_VULKAN=ON builds the Vulkan backend (needs
+# vulkan-headers, vulkan-loader-devel, and glslc). CPU-only stays the default so a
+# bare `gem install` never requires GPU toolchain. Toggling this flips a cached
+# CMake var, so switching modes wants a clean build dir (rm -rf ext/*/build).
+VULKAN = %w[1 on true yes].include?(ENV["ELELEM_GGML_VULKAN"].to_s.strip.downcase)
+
 def run(*cmd)
   warn "elelem: + #{cmd.join(' ')}"
   system(*cmd) || abort("elelem: build step failed: #{cmd.join(' ')}")
@@ -32,7 +38,7 @@ run("cmake", "-S", VENDOR, "-B", BUILD_DIR,
     # libllama finds its ggml siblings there -- not in this throwaway build dir.
     "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON",
     "-DCMAKE_INSTALL_RPATH=$ORIGIN",
-    "-DGGML_VULKAN=OFF",
+    "-DGGML_VULKAN=#{VULKAN ? 'ON' : 'OFF'}",
     "-DLLAMA_CURL=OFF",
     "-DLLAMA_BUILD_COMMON=ON", # common_chat: chat templates + tool-call parsing
     "-DLLAMA_BUILD_TESTS=OFF",
@@ -67,4 +73,4 @@ File.write(File.join(EXT_DIR, "Makefile"), <<~MAKE)
   .PHONY: all clean install
 MAKE
 
-warn "elelem: built llama.cpp + shim into #{NATIVE}"
+warn "elelem: built llama.cpp + shim into #{NATIVE} (#{VULKAN ? 'Vulkan/GPU' : 'CPU'})"

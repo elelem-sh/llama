@@ -30,9 +30,9 @@ module Elelem
         end
       end
 
-      def initialize(model_path:, n_ctx: 4096, n_threads: 16, max_tokens: 512)
+      def initialize(model_path:, n_ctx: 4096, n_threads: 16, max_tokens: 512, n_gpu_layers: 0)
         @max_tokens = max_tokens
-        @handle = self.class.functions[:open].call(model_path, 0, n_ctx, n_threads) # 0 = CPU
+        @handle = self.class.functions[:open].call(model_path, n_gpu_layers, n_ctx, n_threads)
         raise "gguf: failed to load model at #{model_path}" if @handle.null?
       end
 
