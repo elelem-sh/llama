@@ -19,11 +19,13 @@ module Elelem
       # dlopen + bindings are process-wide resources -- memoize once, like Net.http.
       def self.functions
         @functions ||= begin
+          unless File.exist?(SHIM)
+            raise "gguf: native shim missing at #{SHIM}\n       run: bundle exec rake compile"
+          end
           lib = Fiddle.dlopen(SHIM)
           {
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I], V),
-            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I], V),
-            close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID)
+            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I], V)
           }
         end
       end

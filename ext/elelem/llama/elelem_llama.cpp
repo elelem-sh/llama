@@ -35,6 +35,12 @@ void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads) {
     return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads};
 }
 
+// Tool-call arguments arrive as either a JSON string or an object; llama.cpp's
+// common_chat wants a string either way.
+static std::string as_json_string(const json &v) {
+    return v.is_string() ? v.get<std::string>() : v.dump();
+}
+
 static std::vector<common_chat_msg> build_msgs(const json &arr) {
     std::vector<common_chat_msg> out;
     for (const auto &m : arr) {
@@ -50,7 +56,7 @@ static std::vector<common_chat_msg> build_msgs(const json &arr) {
                 c.name = tc.value("name", "");
                 if (tc.contains("arguments")) {
                     const auto &a = tc["arguments"];
-                    c.arguments = a.is_string() ? a.get<std::string>() : a.dump();
+                    c.arguments = as_json_string(a);
                 }
                 cm.tool_calls.push_back(c);
             }
@@ -78,6 +84,7 @@ static std::vector<common_chat_tool> build_tools(const json &arr) {
 const char *el_generate(void *handle, const char *messages_json, const char *tools_json, int max_tokens) {
     auto *h = (el_handle *) handle;
     const llama_vocab *vocab = llama_model_get_vocab(h->model);
+    static thread_local std::string buf; // result JSON; valid until the next call on this thread
 
     common_chat_templates_inputs inputs;
     inputs.messages = build_msgs(json::parse(messages_json));
@@ -95,7 +102,7 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
     cp.n_threads = h->n_threads;
     cp.n_threads_batch = h->n_threads;
     llama_context *ctx = llama_init_from_model(h->model, cp);
-    if (!ctx) { static thread_local std::string e; e = result.dump(); return e.c_str(); }
+    if (!ctx) { buf = result.dump(); return buf.c_str(); }
 
     llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
@@ -117,15 +124,15 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
     }
 
     std::string output;
-    llama_token cur = 0;
     char piece[512];
     for (int t = 0; t < max_tokens; t++) {
         llama_token id = llama_sampler_sample(smpl, ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
         int np = llama_token_to_piece(vocab, id, piece, (int32_t) sizeof(piece), 0, true);
         if (np > 0) output.append(piece, np);
-        cur = id;
-        if (llama_decode(ctx, llama_batch_get_one(&cur, 1)) != 0) break;
+        // Advance the KV cache so we can sample the next token. Skip it on the last
+        // planned iteration -- that forward pass would never be sampled from.
+        if (t + 1 < max_tokens && llama_decode(ctx, llama_batch_get_one(&id, 1)) != 0) break;
     }
 
     llama_sampler_free(smpl);
@@ -150,7 +157,7 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
                 if (known && j.contains("arguments")) {
                     common_chat_tool_call tc;
                     tc.name = name;
-                    tc.arguments = j["arguments"].is_string() ? j["arguments"].get<std::string>() : j["arguments"].dump();
+                    tc.arguments = as_json_string(j["arguments"]);
                     parsed.tool_calls.push_back(tc);
                     parsed.content.clear();
                 }
@@ -169,7 +176,6 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
         i++;
     }
 
-    static thread_local std::string buf;
     buf = result.dump();
     return buf.c_str();
 }
