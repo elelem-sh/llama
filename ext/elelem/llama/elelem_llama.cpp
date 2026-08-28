@@ -138,8 +138,12 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
     llama_sampler_free(smpl);
     llama_free(ctx);
 
-    common_chat_parser_params pp;
-    pp.format = cparams.format;
+    // The parse rules live in a PEG arena that templates_apply serialized into
+    // cparams.parser; common_chat_parse forwards params.parser to the PEG engine,
+    // so it must be deserialized here or every format returns content-only (no
+    // tool calls). The converting ctor carries format + generation_prompt.
+    common_chat_parser_params pp(cparams);
+    if (!cparams.parser.empty()) pp.parser.load(cparams.parser);
     common_chat_msg parsed = common_chat_parse(output, false, pp);
 
     // Lenient fallback: small/quantized models often emit a bare {"name","arguments"}
