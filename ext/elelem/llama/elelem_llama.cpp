@@ -145,7 +145,9 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
     // Lenient fallback: small/quantized models often emit a bare {"name","arguments"}
     // tool-call JSON (frequently fenced) instead of the template's exact tag syntax,
     // so the strict parser misses it. If tools were offered and nothing parsed, pull
-    // out the first JSON object that names a real tool.
+    // out the first JSON object that names a real tool. result["fallback"] records
+    // whether this fired -- a diagnostic for judging if a model needs the crutch.
+    bool fallback_used = false;
     if (parsed.tool_calls.empty() && !inputs.tools.empty()) {
         size_t a = output.find('{'), b = output.rfind('}');
         if (a != std::string::npos && b != std::string::npos && b > a) {
@@ -160,11 +162,13 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
                     tc.arguments = as_json_string(j["arguments"]);
                     parsed.tool_calls.push_back(tc);
                     parsed.content.clear();
+                    fallback_used = true;
                 }
             } catch (...) { /* not a tool call; leave content as-is */ }
         }
     }
 
+    result["fallback"] = fallback_used;
     result["content"] = parsed.content;
     int i = 0;
     for (const auto &tc : parsed.tool_calls) {
