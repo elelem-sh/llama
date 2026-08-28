@@ -12,9 +12,19 @@ module Elelem
     # JSON, so the model participates in the normal agent tool loop. No subprocess,
     # no HTTP server, no third-party gem.
     class GGUF
-      SHIM = File.expand_path("../native/libelelem_llama.so", __dir__)
+      NATIVE = File.expand_path("../native", __dir__)
+      SHIM = File.join(NATIVE, "libelelem_llama.so")
       V = Fiddle::TYPE_VOIDP
       I = Fiddle::TYPE_INT
+      F = Fiddle::TYPE_FLOAT
+
+      # The GPU backend the extension compiled (extconf.rb stamps this at install);
+      # "cpu" when absent. Lets the provider default GPU offload to what was built.
+      def self.backend
+        File.read(File.join(NATIVE, "backend")).strip
+      rescue SystemCallError
+        "cpu"
+      end
 
       # dlopen + bindings are process-wide resources -- memoize once, like Net.http.
       def self.functions
@@ -24,15 +34,17 @@ module Elelem
           end
           lib = Fiddle.dlopen(SHIM)
           {
-            open: Fiddle::Function.new(lib["el_open"], [V, I, I, I], V),
+            open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I], V),
             generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I], V)
           }
         end
       end
 
-      def initialize(model_path:, n_ctx: 4096, n_threads: 16, max_tokens: 512, n_gpu_layers: 0)
+      # temp <= 0 => greedy/deterministic; seed -1 keeps llama.cpp's default seed.
+      def initialize(model_path:, n_ctx: 4096, n_threads: 16, max_tokens: 512,
+                     n_gpu_layers: 0, temp: 0.7, seed: -1)
         @max_tokens = max_tokens
-        @handle = self.class.functions[:open].call(model_path, n_gpu_layers, n_ctx, n_threads)
+        @handle = self.class.functions[:open].call(model_path, n_gpu_layers, n_ctx, n_threads, temp, seed)
         raise "gguf: failed to load model at #{model_path}" if @handle.null?
       end
 

@@ -20,11 +20,15 @@ struct el_handle {
     common_chat_templates_ptr tmpls;
     int n_ctx;
     int n_threads;
+    float temp;       // <= 0 => greedy (deterministic); used by evals
+    uint32_t seed;
 };
 
 static bool g_backend = false;
 
-void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads) {
+// temp <= 0 selects greedy/deterministic sampling; seed is the RNG seed for the
+// sampled path (both surfaced so callers -- notably the eval harness -- can pin them).
+void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed) {
     if (!g_backend) { llama_backend_init(); g_backend = true; }
 
     llama_model_params mp = llama_model_default_params();
@@ -32,7 +36,8 @@ void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads) {
     llama_model *model = llama_model_load_from_file(path, mp);
     if (!model) return nullptr;
 
-    return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads};
+    return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads,
+                         temp, (uint32_t) seed};
 }
 
 // Tool-call arguments arrive as either a JSON string or an object; llama.cpp's
@@ -105,10 +110,14 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
     if (!ctx) { buf = result.dump(); return buf.c_str(); }
 
     llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
-    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    if (h->temp <= 0.0f) {
+        llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+    } else {
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(h->temp));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(h->seed));
+    }
 
     const std::string &prompt = cparams.prompt;
     int n_prompt = -llama_tokenize(vocab, prompt.c_str(), (int32_t) prompt.size(), nullptr, 0, true, true);
