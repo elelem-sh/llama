@@ -36,8 +36,7 @@ void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, floa
     llama_model *model = llama_model_load_from_file(path, mp);
     if (!model) return nullptr;
 
-    return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads,
-                         temp, (uint32_t) seed};
+    return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads, temp, (uint32_t) seed};
 }
 
 // Tool-call arguments arrive as either a JSON string or an object; llama.cpp's
