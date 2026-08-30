@@ -42,7 +42,7 @@ static enum ggml_log_level el_log_threshold() {
     return GGML_LOG_LEVEL_WARN;
 }
 
-static void el_log_callback(enum ggml_log_level level, const char *text, void *user_data) {
+static void el_log_callback(enum ggml_log_level level, const char *text, void * /*user_data*/) {
     if (level < el_log_threshold()) return;
     fputs(text, stderr);
 }
@@ -61,7 +61,16 @@ void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, floa
     llama_model *model = llama_model_load_from_file(path, mp);
     if (!model) return nullptr;
 
-    return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads, temp, (uint32_t) seed};
+    // common_chat_templates_init parses the model's embedded Jinja chat
+    // template; a malformed/unsupported template throws instead of
+    // returning null, which would otherwise abort the whole process (see
+    // el_generate's comment on the FFI boundary).
+    try {
+        return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads, temp, (uint32_t) seed};
+    } catch (const std::exception &) {
+        llama_model_free(model);
+        return nullptr;
+    }
 }
 
 // Tool-call arguments arrive as either a JSON string or an object; llama.cpp's
@@ -110,7 +119,14 @@ static std::vector<common_chat_tool> build_tools(const json &arr) {
 
 // Returns a JSON string {"content": "...", "tool_calls": [{id,name,arguments}]}.
 // The buffer is valid until the next el_generate call on this thread.
-const char *el_generate(void *handle, const char *messages_json, const char *tools_json, int max_tokens) {
+// Every throwing call in here (nlohmann::json parsing, jinja template
+// application, the chat PEG parser) is wrapped by the caller, el_generate,
+// in one top-level try/catch: any C++ exception that unwinds past this
+// function crosses the Fiddle FFI boundary into Ruby and aborts the whole
+// process (std::terminate, not a catchable Ruby exception). A malformed
+// request or an unfamiliar template family (new model = new chat_template)
+// must degrade to an error result, never crash the caller.
+static const char *el_generate_impl(void *handle, const char *messages_json, const char *tools_json, int max_tokens) {
     auto *h = (el_handle *) handle;
     const llama_vocab *vocab = llama_model_get_vocab(h->model);
     static thread_local std::string buf; // result JSON; valid until the next call on this thread
@@ -175,9 +191,26 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
     // cparams.parser; common_chat_parse forwards params.parser to the PEG engine,
     // so it must be deserialized here or every format returns content-only (no
     // tool calls). The converting ctor carries format + generation_prompt.
-    common_chat_parser_params pp(cparams);
-    if (!cparams.parser.empty()) pp.parser.load(cparams.parser);
-    common_chat_msg parsed = common_chat_parse(output, false, pp);
+    //
+    // common_chat_parse throws std::runtime_error when the model's raw output
+    // doesn't match its own template's expected grammar (seen with gpt-oss's
+    // harmony format on malformed/truncated generations). That exception can't
+    // cross the Fiddle FFI boundary -- it aborts the whole Ruby process -- so
+    // treat a parse failure the same as "nothing parsed": fall through to the
+    // lenient fallback below with the raw text kept as content.
+    common_chat_msg parsed;
+    parsed.content = output;
+    try {
+        common_chat_parser_params pp(cparams);
+        // AUTO routes <think>/harmony-analysis text into reasoning_content
+        // instead of leaving it inline in content (the default, NONE, does not
+        // split it out at all -- see gpt-oss's <|channel|>analysis<|message|>).
+        pp.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
+        if (!cparams.parser.empty()) pp.parser.load(cparams.parser);
+        parsed = common_chat_parse(output, false, pp);
+    } catch (const std::exception &) {
+        parsed.content = output;
+    }
 
     // Lenient fallback: small/quantized models often emit a bare {"name","arguments"}
     // tool-call JSON (frequently fenced) instead of the template's exact tag syntax,
@@ -207,6 +240,7 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
 
     result["fallback"] = fallback_used;
     result["content"] = parsed.content;
+    result["reasoning"] = parsed.reasoning_content;
     int i = 0;
     for (const auto &tc : parsed.tool_calls) {
         result["tool_calls"].push_back({
@@ -219,6 +253,21 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
 
     buf = result.dump();
     return buf.c_str();
+}
+
+const char *el_generate(void *handle, const char *messages_json, const char *tools_json, int max_tokens) {
+    static thread_local std::string errbuf;
+    try {
+        return el_generate_impl(handle, messages_json, tools_json, max_tokens);
+    } catch (const std::exception &e) {
+        json result = {{"content", ""}, {"tool_calls", json::array()}, {"reasoning", ""}, {"fallback", false}, {"error", e.what()}};
+        errbuf = result.dump();
+        return errbuf.c_str();
+    } catch (...) {
+        json result = {{"content", ""}, {"tool_calls", json::array()}, {"reasoning", ""}, {"fallback", false}, {"error", "unknown exception in el_generate"}};
+        errbuf = result.dump();
+        return errbuf.c_str();
+    }
 }
 
 void el_close(void *handle) {

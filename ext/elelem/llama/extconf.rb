@@ -135,7 +135,7 @@ run("sh", "-c", "cp -a #{libdir}/*.so* #{NATIVE}/")
 
 # 3. Compile the shim against the vendored headers, link libllama, rpath $ORIGIN.
 cxx = ENV["CXX"] || "c++"
-run(cxx, "-std=c++17", "-O2", "-shared", "-fPIC",
+run(cxx, "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared", "-fPIC",
     "-I", File.join(VENDOR, "include"),
     "-I", File.join(VENDOR, "ggml", "include"),
     "-I", File.join(VENDOR, "common"),   # chat.h (common_chat)
