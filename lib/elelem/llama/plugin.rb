@@ -4,7 +4,7 @@ Elelem::Providers.register(:gguf) do
   gpu = %w[vulkan cuda metal].include?(Elelem::Net::GGUF.backend)
 
   Elelem::Net::GGUF.new(
-    model: ENV.fetch("GGUF_MODEL", File.expand_path("~/models/gpt-oss-20b-MXFP4.gguf")),
+    model: ENV.fetch("GGUF_MODEL", File.expand_path("~/.elelem/models/gpt-oss-20b-MXFP4.gguf")),
     n_ctx: Integer(ENV.fetch("GGUF_N_CTX", "16384")),
     n_threads: Integer(ENV.fetch("GGUF_THREADS", "16")),
     max_tokens: Integer(ENV.fetch("GGUF_MAX_TOKENS", "4096")),
