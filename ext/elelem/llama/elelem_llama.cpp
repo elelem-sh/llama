@@ -136,6 +136,12 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
     if (tools_json && *tools_json) inputs.tools = build_tools(json::parse(tools_json));
     inputs.add_generation_prompt = true;
     inputs.use_jinja = true;
+    // Must be set before templates_apply -- it bakes extract_reasoning into the
+    // parser grammar templates_apply builds (see common_chat_parser_params below,
+    // which only controls parse-time behavior for formats that already support
+    // it). Without this, thinking-tag models (e.g. GLM's <think>...</think>)
+    // leave reasoning text inline in content instead of reasoning_content.
+    inputs.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
     common_chat_params cparams = common_chat_templates_apply(h->tmpls.get(), inputs);
 
     json result;
