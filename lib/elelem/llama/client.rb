@@ -38,6 +38,11 @@ module Elelem
         ptr = self.class.functions[:generate].call(@handle, JSON.generate(messages), JSON.generate(tools), @max_tokens)
         result = JSON.parse(Fiddle::Pointer.new(ptr).to_s)
 
+        Elelem.logger.debug("gguf: tool-call fallback used") if result["fallback"]
+        if result["tool_calls"].to_a.empty? && !tools.empty? && result["content"].to_s.include?("\"name\"")
+          Elelem.logger.debug("gguf: no tool calls parsed, tools offered")
+        end
+
         content = result["content"].to_s
         block&.call(type: "saying", text: content) unless content.empty?
 

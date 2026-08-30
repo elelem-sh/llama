@@ -8,6 +8,8 @@
 #include "chat.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -26,10 +28,33 @@ struct el_handle {
 
 static bool g_backend = false;
 
+// llama.cpp/ggml log to stderr by default; gate that behind LOG_LEVEL so
+// GGUF model loads aren't noisy unless a caller opts in, matching the
+// verbosity Elelem.logger is configured with in lib/elelem.rb.
+static enum ggml_log_level el_log_threshold() {
+    const char *level = std::getenv("LOG_LEVEL");
+    if (!level) return GGML_LOG_LEVEL_WARN;
+    std::string v(level);
+    std::transform(v.begin(), v.end(), v.begin(), ::tolower);
+    if (v == "debug") return GGML_LOG_LEVEL_DEBUG;
+    if (v == "info") return GGML_LOG_LEVEL_INFO;
+    if (v == "error") return GGML_LOG_LEVEL_ERROR;
+    return GGML_LOG_LEVEL_WARN;
+}
+
+static void el_log_callback(enum ggml_log_level level, const char *text, void *user_data) {
+    if (level < el_log_threshold()) return;
+    fputs(text, stderr);
+}
+
 // temp <= 0 selects greedy/deterministic sampling; seed is the RNG seed for the
 // sampled path (both surfaced so callers -- notably the eval harness -- can pin them).
 void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed) {
-    if (!g_backend) { llama_backend_init(); g_backend = true; }
+    if (!g_backend) {
+        llama_log_set(el_log_callback, nullptr);
+        llama_backend_init();
+        g_backend = true;
+    }
 
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = n_gpu_layers;
