@@ -8,6 +8,7 @@
 #include "chat.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -244,7 +245,63 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
         }
     }
 
+    // Harmony fallback: gpt-oss sometimes emits a malformed header --
+    // e.g. a doubled "<|channel|>commentary" before "<|constrain|>json", or a
+    // missing space -- that the PEG grammar in common_chat_parse rejects
+    // outright (logged upstream as "unparsed peg-native output"), leaving
+    // tool_calls empty and the whole raw header+JSON sitting in content. The
+    // JSON-sniffing fallback above can't help: the tool name lives in the
+    // "to=functions.NAME" tag, not in the trailing JSON object, which here is
+    // bare arguments. Scrape the tag instead of trying to normalize every way
+    // the header tags can be malformed. Search for the *last* "to=functions."
+    // that is actually followed by "<|message|>" on the same call, since
+    // model prose can hallucinate an earlier, unrelated "to=functions." (e.g.
+    // mid-sentence speculation) before the real one.
+    bool harmony_tag_fallback_used = false;
+    if (parsed.tool_calls.empty() && !inputs.tools.empty()) {
+        static const std::string tag = "to=functions.";
+        static const std::string msg_tag = "<|message|>";
+        size_t search_from = output.size();
+        for (;;) {
+            size_t t = output.rfind(tag, search_from);
+            if (t == std::string::npos) break;
+            size_t name_start = t + tag.length();
+            size_t name_end = name_start;
+            while (name_end < output.size() && (isalnum((unsigned char) output[name_end]) || output[name_end] == '_')) name_end++;
+            std::string name = output.substr(name_start, name_end - name_start);
+
+            size_t m = output.find(msg_tag, name_end);
+            bool known = false;
+            for (const auto &tool : inputs.tools) known |= (tool.name == name);
+
+            if (known && m != std::string::npos) {
+                size_t arg_start = m + msg_tag.length();
+                // Assumes a single trailing JSON object (b is the last '}' in
+                // the whole output, not scoped to this call) -- fine while a
+                // generation carries at most one malformed tool call, but two
+                // such calls or trailing prose containing '}' would make this
+                // span both and fail to parse, silently giving up rather than
+                // producing a wrong call.
+                size_t a = output.find('{', arg_start), b = output.rfind('}');
+                if (a != std::string::npos && b != std::string::npos && b > a) {
+                    try {
+                        json args = json::parse(output.substr(a, b - a + 1));
+                        common_chat_tool_call tc;
+                        tc.name = name;
+                        tc.arguments = as_json_string(args);
+                        parsed.tool_calls.push_back(tc);
+                        parsed.content.clear();
+                        harmony_tag_fallback_used = true;
+                    } catch (...) { /* bare JSON didn't parse; give up on this tag */ }
+                }
+            }
+            if (harmony_tag_fallback_used || t == 0) break;
+            search_from = t - 1;
+        }
+    }
+
     result["fallback"] = fallback_used;
+    result["harmony_tag_fallback"] = harmony_tag_fallback_used;
     result["content"] = parsed.content;
     result["reasoning"] = parsed.reasoning_content;
     int i = 0;

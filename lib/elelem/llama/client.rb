@@ -39,6 +39,7 @@ module Elelem
         result = JSON.parse(Fiddle::Pointer.new(ptr).to_s)
 
         Elelem.logger.debug("gguf: tool-call fallback used") if result["fallback"]
+        Elelem.logger.debug("gguf: harmony tag fallback used") if result["harmony_tag_fallback"]
         if result["tool_calls"].to_a.empty? && !tools.empty? && result["content"].to_s.include?("\"name\"")
           Elelem.logger.debug("gguf: no tool calls parsed, tools offered")
         end
