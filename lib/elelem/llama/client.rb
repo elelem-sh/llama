@@ -40,10 +40,16 @@ module Elelem
 
         Elelem.logger.debug("gguf: tool-call fallback used") if result["fallback"]
         Elelem.logger.debug("gguf: harmony tag fallback used") if result["harmony_tag_fallback"]
+        Elelem.logger.warn("gguf: native generate error: #{result["error"]}") if result["error"]
+        if result["ms_decode"]
+          Elelem.logger.debug(format(
+            "gguf: reset=%.0fms prefill=%.0fms (n=%d) decode=%.0fms (n=%d)",
+            result["ms_reset"], result["ms_prefill"], result["n_prompt"], result["ms_decode"], result["n_decoded"]
+          ))
+        end
         if result["tool_calls"].to_a.empty? && !tools.empty? && result["content"].to_s.include?("\"name\"")
           Elelem.logger.debug("gguf: no tool calls parsed, tools offered")
         end
-        Elelem.logger.warn("gguf: native generate error: #{result["error"]}") if result["error"]
         Elelem.logger.debug("gguf: reasoning: #{result["reasoning"]}") if result["reasoning"].to_s != ""
 
         content = result["content"].to_s

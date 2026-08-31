@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -21,6 +22,9 @@ extern "C" {
 struct el_handle {
     llama_model *model;
     common_chat_templates_ptr tmpls;
+    llama_context *ctx; // persistent across el_generate calls; memory is
+                         // cleared at the start of each call so behavior
+                         // stays identical to a fresh context per call
     int n_ctx;
     int n_threads;
     float temp;       // <= 0 => greedy (deterministic); used by evals
@@ -67,7 +71,16 @@ void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, floa
     // returning null, which would otherwise abort the whole process (see
     // el_generate's comment on the FFI boundary).
     try {
-        return new el_handle{model, common_chat_templates_init(model, ""), n_ctx, n_threads, temp, (uint32_t) seed};
+        auto tmpls = common_chat_templates_init(model, "");
+
+        llama_context_params cp = llama_context_default_params();
+        cp.n_ctx = (uint32_t) n_ctx;
+        cp.n_threads = n_threads;
+        cp.n_threads_batch = n_threads;
+        llama_context *ctx = llama_init_from_model(model, cp);
+        if (!ctx) { llama_model_free(model); return nullptr; }
+
+        return new el_handle{model, std::move(tmpls), ctx, n_ctx, n_threads, temp, (uint32_t) seed};
     } catch (const std::exception &) {
         llama_model_free(model);
         return nullptr;
@@ -149,12 +162,13 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
     result["content"] = "";
     result["tool_calls"] = json::array();
 
-    llama_context_params cp = llama_context_default_params();
-    cp.n_ctx = (uint32_t) h->n_ctx;
-    cp.n_threads = h->n_threads;
-    cp.n_threads_batch = h->n_threads;
-    llama_context *ctx = llama_init_from_model(h->model, cp);
-    if (!ctx) { buf = result.dump(); return buf.c_str(); }
+    // ctx is persistent on the handle (see el_open); clear its KV cache so
+    // each call is still stateless from the model's point of view, just
+    // without paying context-alloc/graph-reserve cost every time.
+    llama_context *ctx = h->ctx;
+    auto t0 = std::chrono::steady_clock::now();
+    llama_memory_clear(llama_get_memory(ctx), true);
+    auto t1 = std::chrono::steady_clock::now();
 
     llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
     if (h->temp <= 0.0f) {
@@ -178,21 +192,31 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
         int n = std::min(n_batch, n_prompt - i);
         if (llama_decode(ctx, llama_batch_get_one(tokens.data() + i, n)) != 0) break;
     }
+    auto t2 = std::chrono::steady_clock::now();
 
     std::string output;
     char piece[512];
+    int n_decoded = 0;
     for (int t = 0; t < max_tokens; t++) {
         llama_token id = llama_sampler_sample(smpl, ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
         int np = llama_token_to_piece(vocab, id, piece, (int32_t) sizeof(piece), 0, true);
         if (np > 0) output.append(piece, np);
+        n_decoded++;
         // Advance the KV cache so we can sample the next token. Skip it on the last
         // planned iteration -- that forward pass would never be sampled from.
         if (t + 1 < max_tokens && llama_decode(ctx, llama_batch_get_one(&id, 1)) != 0) break;
     }
+    auto t3 = std::chrono::steady_clock::now();
 
     llama_sampler_free(smpl);
-    llama_free(ctx);
+
+    auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    result["ms_reset"] = ms(t0, t1);
+    result["ms_prefill"] = ms(t1, t2);
+    result["ms_decode"] = ms(t2, t3);
+    result["n_prompt"] = n_prompt;
+    result["n_decoded"] = n_decoded;
 
     // The parse rules live in a PEG arena that templates_apply serialized into
     // cparams.parser; common_chat_parse forwards params.parser to the PEG engine,
@@ -336,6 +360,7 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
 void el_close(void *handle) {
     auto *h = (el_handle *) handle;
     if (!h) return;
+    llama_free(h->ctx);
     llama_model_free(h->model);
     delete h;
 }
