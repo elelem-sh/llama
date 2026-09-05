@@ -3,8 +3,11 @@
 // compiled against the vendored headers, so Ruby only sees simple signatures:
 // JSON in (OpenAI-style messages + tools), JSON out (content + tool_calls). The
 // model, chat templates and context are opened once and kept resident on an
-// opaque handle; clearing the KV cache at the start of each generate keeps every
-// request statelessly isolated without paying to rebuild the context.
+// opaque handle. Each generate reuses whatever leading tokens the KV cache
+// already holds for the prompt it was given and re-evaluates the rest, so a
+// growing conversation costs O(n) prefill overall instead of O(n^2). Requests
+// stay isolated from each other because the reused KV is always, by
+// construction, a genuine prefix of the current prompt.
 #include "llama.h"
 #include "chat.h"
 #include "common.h" // common_cpu_get_num_math (also reached via chat.h; explicit so it survives header churn)
@@ -25,14 +28,19 @@ extern "C" {
 struct el_handle {
     llama_model *model;
     common_chat_templates_ptr tmpls;
-    llama_context *ctx; // persistent across el_generate calls; memory is
-                         // cleared at the start of each call so behavior
-                         // stays identical to a fresh context per call
+    llama_context *ctx; // persistent across el_generate calls; see el_generate_impl
+                         // for how its KV cache is reused between calls
     int n_ctx;
     int n_threads;
     float temp;       // <= 0 => greedy (deterministic); used by evals
     uint32_t seed;
     bool dead = false; // set once the GPU device is lost; see el_close
+    // Exactly the tokens currently resident in the KV cache, in position
+    // order. Appended to only after a decode succeeds, so it never claims
+    // more than the cache actually holds -- the reuse logic trusts this to
+    // mirror the cache, and a mismatch would silently corrupt every
+    // subsequent position.
+    std::vector<llama_token> cached;
 };
 
 static bool g_backend = false;
@@ -235,13 +243,26 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
 
     json result;
 
-    // ctx is persistent on the handle (see el_open); clear its KV cache so
-    // each call is still stateless from the model's point of view, just
-    // without paying context-alloc/graph-reserve cost every time.
     llama_context *ctx = h->ctx;
-    auto t0 = std::chrono::steady_clock::now();
-    llama_memory_clear(llama_get_memory(ctx), true);
-    auto t1 = std::chrono::steady_clock::now();
+    llama_memory_t mem = llama_get_memory(ctx);
+
+    // The KV cache is mid-surgery from the trim below until prefill completes,
+    // and there are many ways out of here (the el_error guards, a throw caught
+    // by el_generate, a partial llama_decode that leaves ubatches behind --
+    // see the llama_decode contract in llama.h). Any of those leaves the cache
+    // holding a prefix that h->cached no longer describes, which would corrupt
+    // the *next* call rather than this one. So invalidate by default and only
+    // commit on the happy path.
+    struct cache_guard {
+        llama_memory_t mem;
+        std::vector<llama_token> *cached;
+        bool committed = false;
+        ~cache_guard() {
+            if (committed) return;
+            llama_memory_clear(mem, true);
+            cached->clear();
+        }
+    } guard{mem, &h->cached};
 
     // unique_ptr because everything between here and the decode loop can throw
     // (vector allocation, json assignment); a raw pointer freed at the bottom
@@ -277,17 +298,54 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
     std::vector<llama_token> tokens(n_prompt);
     llama_tokenize(vocab, prompt.c_str(), (int32_t) prompt.size(), tokens.data(), (int32_t) tokens.size(), true, true);
 
-    // Ingest the prompt in n_batch-sized chunks (a full prompt commonly exceeds one
-    // batch, which llama_decode asserts against). A failure here leaves the KV
-    // cache holding only part of the prompt -- sampling from that yields a reply
-    // conditioned on a truncated conversation, so report it rather than continuing.
+    auto t0 = std::chrono::steady_clock::now();
+
+    // Conversations grow by appending, so each prompt usually starts with the
+    // whole of the previous one: reuse that prefix instead of re-evaluating it,
+    // turning O(n^2) prefill across a session into O(n).
+    //
+    // Matching on tokens rather than on any notion of "same conversation" is
+    // what makes this safe to do unconditionally. Whatever the caller did --
+    // appended a turn, edited history, ran /clear, switched to an unrelated
+    // prompt -- the match stops at the first differing token, so the retained
+    // KV always corresponds to a genuine prefix of the prompt being evaluated
+    // now. Nothing needs to tell us the conversation changed.
+    int n_match = 0;
+    while (n_match < (int) h->cached.size() && n_match < n_prompt &&
+           h->cached[n_match] == tokens[n_match]) {
+        n_match++;
+    }
+    // Keep at least one prompt token to evaluate: sampling reads the logits
+    // produced by the last decode, so a fully-cached prompt would sample from
+    // whatever the previous call left behind.
+    if (n_match == n_prompt) n_match = n_prompt - 1;
+
+    // Drop everything after the shared prefix. This fails on architectures
+    // that cannot partially evict (recurrent/hybrid state, e.g. Gated DeltaNet
+    // -- see el_init_context) because their state is not per-token; those
+    // models simply re-evaluate the whole prompt every call, exactly as before.
+    if (n_match > 0 && !llama_memory_seq_rm(mem, 0, n_match, -1)) {
+        n_match = 0;
+    }
+    if (n_match == 0) {
+        llama_memory_clear(mem, true);
+    }
+    h->cached.resize(n_match);
+    auto t1 = std::chrono::steady_clock::now();
+
+    // Ingest the rest of the prompt in n_batch-sized chunks (a full prompt commonly
+    // exceeds one batch, which llama_decode asserts against). A failure here leaves
+    // the KV cache holding only part of the prompt -- sampling from that yields a
+    // reply conditioned on a truncated conversation, so report it rather than
+    // continuing. The guard above resets the cache on the way out.
     const int n_batch = (int) llama_n_batch(ctx);
-    for (int i = 0; i < n_prompt; i += n_batch) {
+    for (int i = n_match; i < n_prompt; i += n_batch) {
         int n = std::min(n_batch, n_prompt - i);
         if (llama_decode(ctx, llama_batch_get_one(tokens.data() + i, n)) != 0) {
             return el_error(buf, "failed to evaluate prompt (llama_decode failed at token " +
                                      std::to_string(i) + " of " + std::to_string(n_prompt) + ")");
         }
+        h->cached.insert(h->cached.end(), tokens.begin() + i, tokens.begin() + i + n);
     }
     auto t2 = std::chrono::steady_clock::now();
 
@@ -324,14 +382,24 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
             decode_failed = true;
             break;
         }
+        // Only tokens that were actually fed back are in the cache. The last
+        // sampled token and any EOG token never are (both break out above), so
+        // recording them would push h->cached out of step with the KV cache.
+        if (t + 1 < budget) h->cached.push_back(id);
     }
     auto t3 = std::chrono::steady_clock::now();
 
+    // The cache now matches h->cached, so it is safe to reuse next call. On a
+    // failed decode the cache is left in an unspecified state, so leave the
+    // guard armed to reset it.
+    if (!decode_failed) guard.committed = true;
+
     auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
-    result["ms_reset"] = ms(t0, t1);
+    result["ms_reset"] = ms(t0, t1); // prefix match + KV trim, not a full clear
     result["ms_prefill"] = ms(t1, t2);
     result["ms_decode"] = ms(t2, t3);
     result["n_prompt"] = n_prompt;
+    result["n_reused"] = n_match; // prompt tokens served from the KV cache
     result["n_decoded"] = n_decoded;
     // Truncated means "stopped without reaching an end-of-generation token" --
     // the budget ran out mid-thought (e.g. spent entirely on reasoning) rather

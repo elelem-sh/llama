@@ -49,8 +49,9 @@ module Elelem
         Elelem.logger.warn("gguf: native generate error: #{result["error"]}") if result["error"]
         if result["ms_decode"]
           Elelem.logger.debug(format(
-            "gguf: reset=%.0fms prefill=%.0fms (n=%d) decode=%.0fms (n=%d)",
-            result["ms_reset"], result["ms_prefill"], result["n_prompt"], result["ms_decode"], result["n_decoded"]
+            "gguf: reset=%.0fms prefill=%.0fms (n=%d, %d reused) decode=%.0fms (n=%d)",
+            result["ms_reset"], result["ms_prefill"], result["n_prompt"], result["n_reused"].to_i,
+            result["ms_decode"], result["n_decoded"]
           ))
         end
         if result["tool_calls"].to_a.empty? && !tools.empty? && result["content"].to_s.include?("\"name\"")
