@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
-Elelem::Providers.register(:gguf) do
-  gpu = %w[vulkan cuda metal].include?(Elelem::Net::GGUF.backend)
+require_relative "../llama"
+
+Elelem::Providers.register(:llama) do
+  gpu = %w[vulkan cuda metal].include?(Elelem::Llama::Client.backend)
 
   default_model = -> {
     dir = File.expand_path("~/.agents/models")
@@ -16,7 +18,7 @@ Elelem::Providers.register(:gguf) do
     end
   }
 
-  Elelem::Net::GGUF.new(
+  Elelem::Llama::Client.new(
     model: ENV.fetch("ELELEM_GGUF_MODEL") { default_model.call },
     n_ctx: 0,
     n_threads: 0,

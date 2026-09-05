@@ -6,7 +6,7 @@ EXT_DIR   = __dir__
 GEM_ROOT  = File.expand_path("../../..", EXT_DIR)
 VENDOR    = File.join(GEM_ROOT, "vendor", "llama.cpp")
 BUILD_DIR = File.join(EXT_DIR, "build")
-NATIVE    = File.join(GEM_ROOT, "lib", "elelem", "gguf")
+NATIVE    = File.join(GEM_ROOT, "ext", "elelem", "llama", "native")
 STAMP     = File.join(BUILD_DIR, ".elelem_backend") # last backend built here
 VALID_BACKENDS = %w[cpu vulkan cuda].freeze
 
@@ -75,8 +75,7 @@ def configure_and_build(backend)
 end
 
 unless File.exist?(File.join(VENDOR, "CMakeLists.txt"))
-  abort "elelem: vendored llama.cpp missing at #{VENDOR}\n" \
-    "        run: git submodule update --init --recursive"
+  abort "elelem: vendored llama.cpp missing at #{VENDOR}\n        run: git submodule update --init --recursive"
 end
 
 backend = detect_backend
@@ -108,7 +107,7 @@ run(cxx, "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared", "-fPIC",
     "-I", File.join(VENDOR, "ggml", "include"),
     "-I", File.join(VENDOR, "common"),   # chat.h (common_chat)
     "-I", File.join(VENDOR, "vendor"),   # nlohmann/json.hpp
-    File.join(EXT_DIR, "elelem/llama/elelem.cpp"),
+    File.join(EXT_DIR, "elelem.cpp"),
     "-o", File.join(NATIVE, "libelelem_llama.so"),
     "-L", libdir, "-lllama-common", "-lllama",
     "-Wl,-rpath,$ORIGIN")

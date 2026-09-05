@@ -4,9 +4,9 @@ require "fiddle"
 require "json"
 
 module Elelem
-  module Net
-    class GGUF
-      NATIVE = File.expand_path("gguf", __dir__)
+  module Llama
+    class Client
+      NATIVE = File.expand_path("../../../ext/elelem/llama/native", __dir__)
       SHIM = File.join(NATIVE, "libelelem_llama.so")
       V = Fiddle::TYPE_VOIDP
       I = Fiddle::TYPE_INT
@@ -32,7 +32,7 @@ module Elelem
       def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 0, n_gpu_layers: 0, temp: 0.7, seed: -1)
         @max_tokens = max_tokens
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed)
-        raise "gguf: failed to load model at #{model}" if @handle.null?
+        raise "llama: failed to load model at #{model}" if @handle.null?
 
         at_exit { self.class.functions[:close].call(@handle) }
       end
@@ -41,21 +41,21 @@ module Elelem
         ptr = self.class.functions[:generate].call(@handle, JSON.generate(messages), JSON.generate(tools), @max_tokens)
         result = JSON.parse(Fiddle::Pointer.new(ptr).to_s)
 
-        Elelem.logger.debug("gguf: tool-call fallback used") if result["fallback"]
-        Elelem.logger.debug("gguf: harmony tag fallback used") if result["harmony_tag_fallback"]
-        Elelem.logger.warn("gguf: generate error: #{result["error"]}") if result["error"]
+        Elelem.logger.debug("llama: tool-call fallback used") if result["fallback"]
+        Elelem.logger.debug("llama: harmony tag fallback used") if result["harmony_tag_fallback"]
+        Elelem.logger.warn("llama: generate error: #{result["error"]}") if result["error"]
         if result["ms_decode"]
           Elelem.logger.debug(format(
-            "gguf: reset=%.0fms prefill=%.0fms (n=%d, %d reused) decode=%.0fms (n=%d)",
+            "llama: reset=%.0fms prefill=%.0fms (n=%d, %d reused) decode=%.0fms (n=%d)",
             result["ms_reset"], result["ms_prefill"], result["n_prompt"], result["n_reused"].to_i,
             result["ms_decode"], result["n_decoded"]
           ))
         end
         if result["tool_calls"].to_a.empty? && !tools.empty? && result["content"].to_s.include?("\"name\"")
-          Elelem.logger.debug("gguf: no tool calls parsed, tools offered")
+          Elelem.logger.debug("llama: no tool calls parsed, tools offered")
         end
         reasoning = result["reasoning"].to_s
-        Elelem.logger.debug("gguf: reasoning: #{reasoning}") unless reasoning.empty?
+        Elelem.logger.debug("llama: reasoning: #{reasoning}") unless reasoning.empty?
         block&.call(type: "thinking", text: reasoning) unless reasoning.empty?
 
         content = result["content"].to_s
@@ -63,7 +63,7 @@ module Elelem
           content = "[error: #{result["error"]}]"
         elsif result["truncated"] && content.empty? && result.fetch("tool_calls", []).empty?
           limit = @max_tokens.positive? ? "max_tokens" : "available context"
-          Elelem.logger.warn("gguf: hit #{limit} (#{result["n_decoded"]}/#{result["budget"]}) before producing a reply")
+          Elelem.logger.warn("llama: hit #{limit} (#{result["n_decoded"]}/#{result["budget"]}) before producing a reply")
           content = "[no reply: ran out of output tokens before finishing]"
         end
         block&.call(type: "saying", text: content) unless content.empty?
