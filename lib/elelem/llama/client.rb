@@ -6,7 +6,7 @@ require "json"
 module Elelem
   module Net
     class GGUF
-      NATIVE = File.expand_path("native", __dir__)
+      NATIVE = File.expand_path("gguf", __dir__)
       SHIM = File.join(NATIVE, "libelelem_llama.so")
       V = Fiddle::TYPE_VOIDP
       I = Fiddle::TYPE_INT
@@ -43,7 +43,7 @@ module Elelem
 
         Elelem.logger.debug("gguf: tool-call fallback used") if result["fallback"]
         Elelem.logger.debug("gguf: harmony tag fallback used") if result["harmony_tag_fallback"]
-        Elelem.logger.warn("gguf: native generate error: #{result["error"]}") if result["error"]
+        Elelem.logger.warn("gguf: generate error: #{result["error"]}") if result["error"]
         if result["ms_decode"]
           Elelem.logger.debug(format(
             "gguf: reset=%.0fms prefill=%.0fms (n=%d, %d reused) decode=%.0fms (n=%d)",
