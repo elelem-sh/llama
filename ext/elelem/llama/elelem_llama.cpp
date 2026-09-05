@@ -52,8 +52,45 @@ static void el_log_callback(enum ggml_log_level level, const char *text, void * 
     fputs(text, stderr);
 }
 
+// Smallest context worth running with; below this a model is unusable for
+// agentic tool-calling (system prompt + tool schemas alone can exceed a few
+// thousand tokens), so give up rather than silently hand back a useless handle.
+static const int EL_MIN_CTX = 4096;
+
+// n_ctx <= 0 means "auto": ask llama.cpp for the model's trained max (n_ctx=0
+// is documented as "from model" in llama.h) rather than guessing from a memory
+// formula -- a formula sized for plain transformer KV would badly overestimate
+// footprint for hybrid/recurrent-state architectures (e.g. Qwen3.5's Gated
+// DeltaNet layers hold fixed-size state, not per-token KV). If the resulting
+// context still doesn't fit (llama_init_from_model returns null -- OOM or
+// unsupported size), retry at half the size down to EL_MIN_CTX; this is
+// correct for every architecture because it measures the actual allocation
+// instead of predicting it.
+static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threads, uint32_t *out_n_ctx) {
+    uint32_t requested = n_ctx > 0 ? (uint32_t) n_ctx : 0;
+    llama_context_params cp = llama_context_default_params();
+    cp.n_ctx = requested;
+    cp.n_threads = n_threads;
+    cp.n_threads_batch = n_threads;
+    llama_context *ctx = llama_init_from_model(model, cp);
+    if (ctx) {
+        *out_n_ctx = requested > 0 ? requested : llama_model_n_ctx_train(model);
+        return ctx;
+    }
+    if (requested == 0) return nullptr; // "from model" failed; no size to halve
+
+    for (uint32_t size = requested / 2; size >= EL_MIN_CTX; size /= 2) {
+        cp.n_ctx = size;
+        ctx = llama_init_from_model(model, cp);
+        if (ctx) { *out_n_ctx = size; return ctx; }
+    }
+    return nullptr;
+}
+
 // temp <= 0 selects greedy/deterministic sampling; seed is the RNG seed for the
 // sampled path (both surfaced so callers -- notably the eval harness -- can pin them).
+// n_threads <= 0 means "auto": use llama.cpp's own physical-core/SMT-aware
+// detection (common_cpu_get_num_math) instead of a thread count picked in Ruby.
 void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed) {
     if (!g_backend) {
         llama_log_set(el_log_callback, nullptr);
@@ -66,6 +103,8 @@ void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, floa
     llama_model *model = llama_model_load_from_file(path, mp);
     if (!model) return nullptr;
 
+    int threads = n_threads > 0 ? n_threads : common_cpu_get_num_math();
+
     // common_chat_templates_init parses the model's embedded Jinja chat
     // template; a malformed/unsupported template throws instead of
     // returning null, which would otherwise abort the whole process (see
@@ -73,14 +112,11 @@ void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, floa
     try {
         auto tmpls = common_chat_templates_init(model, "");
 
-        llama_context_params cp = llama_context_default_params();
-        cp.n_ctx = (uint32_t) n_ctx;
-        cp.n_threads = n_threads;
-        cp.n_threads_batch = n_threads;
-        llama_context *ctx = llama_init_from_model(model, cp);
+        uint32_t actual_n_ctx = 0;
+        llama_context *ctx = el_init_context(model, n_ctx, threads, &actual_n_ctx);
         if (!ctx) { llama_model_free(model); return nullptr; }
 
-        return new el_handle{model, std::move(tmpls), ctx, n_ctx, n_threads, temp, (uint32_t) seed};
+        return new el_handle{model, std::move(tmpls), ctx, (int) actual_n_ctx, threads, temp, (uint32_t) seed};
     } catch (const std::exception &) {
         llama_model_free(model);
         return nullptr;

@@ -28,7 +28,7 @@ module Elelem
         end
       end
 
-      def initialize(model:, n_ctx: 8192, n_threads: 16, max_tokens: 512, n_gpu_layers: 0, temp: 0.7, seed: -1)
+      def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 512, n_gpu_layers: 0, temp: 0.7, seed: -1)
         @max_tokens = max_tokens
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed)
         raise "gguf: failed to load model at #{model}" if @handle.null?
