@@ -45,10 +45,10 @@ struct el_handle {
 
 static bool g_backend = false;
 
-// llama.cpp/ggml log to stderr by default; gate that behind LOG_LEVEL so
+// llama.cpp/ggml log to stderr by default; gate that behind ELELEM_LOG_LEVEL so
 // GGUF model loads aren't noisy unless a caller opts in, matching the
 // verbosity Elelem.logger is configured with in lib/elelem.rb.
-// Read once: LOG_LEVEL can't change mid-process, and this ran per log line.
+// Read once: the env var can't change mid-process, and this ran per log line.
 static enum ggml_log_level el_log_threshold() {
     static const enum ggml_log_level cached = [] {
         const char *level = std::getenv("ELELEM_LOG_LEVEL");
@@ -74,13 +74,27 @@ static void el_log_callback(enum ggml_log_level level, const char *text, void * 
 // thousand tokens), so give up rather than silently hand back a useless handle.
 static const int EL_MIN_CTX = 4096;
 
-// n_ctx <= 0 means "auto": ask llama.cpp for the model's trained max (n_ctx=0
-// is documented as "from model" in llama.h) rather than guessing from a memory
-// formula -- a formula sized for plain transformer KV would badly overestimate
-// footprint for hybrid/recurrent-state architectures (e.g. Qwen3.5's Gated
-// DeltaNet layers hold fixed-size state, not per-token KV). If the resulting
-// context still doesn't fit (llama_init_from_model returns null -- OOM or
-// unsupported size), retry at half the size down to EL_MIN_CTX; this is
+// Ceiling on the *initial* auto-sized request. llama_init_from_model succeeding
+// only proves the KV cache itself fit -- it reserves nothing for the compute
+// buffer a large prompt's prefill batch needs, so asking for a model's full
+// trained max (some ship 256K+) can leave a GPU with just enough VRAM for KV
+// and none for that buffer, failing later and unrecoverably inside a decode
+// instead of here. 65536 comfortably covers real agent sessions (a handful of
+// large files plus history) while leaving GPU headroom for prefill scratch
+// space; models with a smaller trained max are unaffected since the min() below
+// only ever shrinks the request. Applied on CPU too, unconditionally: one
+// constant is simpler than branching on backend, and a context this large is
+// already impractically slow to prefill on CPU regardless of whether it fits.
+static const int EL_MAX_AUTO_CTX = 65536;
+
+// n_ctx <= 0 means "auto": ask llama.cpp for the model's trained max, capped at
+// EL_MAX_AUTO_CTX (n_ctx=0 alone is documented as "from model" in llama.h, but
+// see EL_MAX_AUTO_CTX for why that alone is not a safe default) -- rather than
+// guessing from a memory formula, which for hybrid/recurrent-state
+// architectures (e.g. Qwen3.5's Gated DeltaNet layers hold fixed-size state,
+// not per-token KV) would badly over- or under-estimate footprint. If the
+// resulting context still doesn't fit (llama_init_from_model returns null --
+// OOM or unsupported size), retry at half the size down to EL_MIN_CTX; this is
 // correct for every architecture because it measures the actual allocation
 // instead of predicting it.
 static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threads) {
