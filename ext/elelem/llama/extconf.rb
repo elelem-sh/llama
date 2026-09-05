@@ -62,8 +62,6 @@ def detect_backend
     abort "elelem: ELELEM_LLAMA_BACKEND=#{forced.inspect} invalid; use auto|#{VALID_BACKENDS.join('|')}"
   end
   return forced unless forced.empty? || forced == "auto"
-  # Legacy opt-in still honored.
-  return "vulkan" if %w[1 on true yes].include?(ENV["ELELEM_GGML_VULKAN"].to_s.strip.downcase)
 
   return "cuda" if which("nvcc")
   return "vulkan" if which("glslc") && vulkan_loader?

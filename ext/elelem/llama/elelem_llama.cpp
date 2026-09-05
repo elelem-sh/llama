@@ -51,7 +51,7 @@ static bool g_backend = false;
 // Read once: LOG_LEVEL can't change mid-process, and this ran per log line.
 static enum ggml_log_level el_log_threshold() {
     static const enum ggml_log_level cached = [] {
-        const char *level = std::getenv("LOG_LEVEL");
+        const char *level = std::getenv("ELELEM_LOG_LEVEL");
         if (!level) return GGML_LOG_LEVEL_WARN;
         std::string v(level);
         std::transform(v.begin(), v.end(), v.begin(),
@@ -84,14 +84,16 @@ static const int EL_MIN_CTX = 4096;
 // correct for every architecture because it measures the actual allocation
 // instead of predicting it.
 static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threads) {
-    uint32_t requested = n_ctx > 0 ? (uint32_t) n_ctx : 0;
+    int32_t trained_max = llama_model_n_ctx_train(model);
+    uint32_t requested = n_ctx > 0 ? (uint32_t) n_ctx
+                        : trained_max > 0 ? std::min((uint32_t) trained_max, (uint32_t) EL_MAX_AUTO_CTX)
+                        : (uint32_t) EL_MAX_AUTO_CTX;
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx = requested;
     cp.n_threads = n_threads;
     cp.n_threads_batch = n_threads;
     llama_context *ctx = llama_init_from_model(model, cp);
     if (ctx) return ctx;
-    if (requested == 0) return nullptr; // "from model" failed; no size to halve
 
     for (uint32_t size = requested / 2; size >= EL_MIN_CTX; size /= 2) {
         cp.n_ctx = size;
