@@ -61,6 +61,8 @@ module Elelem
         if result["truncated"] && content.empty? && result.fetch("tool_calls", []).empty?
           Elelem.logger.warn("gguf: hit max_tokens (#{result["n_decoded"]}) before producing a reply")
           content = "[no reply: ran out of output tokens before finishing]"
+        elsif result["error"] && content.empty?
+          content = "[error: #{result["error"]}]"
         end
         block&.call(type: "saying", text: content) unless content.empty?
 

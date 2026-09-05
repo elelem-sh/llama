@@ -29,6 +29,7 @@ struct el_handle {
     int n_threads;
     float temp;       // <= 0 => greedy (deterministic); used by evals
     uint32_t seed;
+    bool dead = false; // set once the GPU device is lost; see el_close
 };
 
 static bool g_backend = false;
@@ -230,10 +231,16 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
     }
     auto t2 = std::chrono::steady_clock::now();
 
+    // The caller's max_tokens is a policy choice (how long one reply may
+    // run), not a hardware quantity -- but decoding past what's left in the
+    // context window is never correct regardless of what was requested, so
+    // that part of the ceiling is calculated, not configured.
+    int budget = std::min(max_tokens, h->n_ctx - n_prompt);
+
     std::string output;
     char piece[512];
     int n_decoded = 0;
-    for (int t = 0; t < max_tokens; t++) {
+    for (int t = 0; t < budget; t++) {
         llama_token id = llama_sampler_sample(smpl, ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
         int np = llama_token_to_piece(vocab, id, piece, (int32_t) sizeof(piece), 0, true);
@@ -241,7 +248,7 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
         n_decoded++;
         // Advance the KV cache so we can sample the next token. Skip it on the last
         // planned iteration -- that forward pass would never be sampled from.
-        if (t + 1 < max_tokens && llama_decode(ctx, llama_batch_get_one(&id, 1)) != 0) break;
+        if (t + 1 < budget && llama_decode(ctx, llama_batch_get_one(&id, 1)) != 0) break;
     }
     auto t3 = std::chrono::steady_clock::now();
 
@@ -253,11 +260,11 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
     result["ms_decode"] = ms(t2, t3);
     result["n_prompt"] = n_prompt;
     result["n_decoded"] = n_decoded;
-    // n_decoded hits max_tokens without an EOG token when generation was cut
+    // n_decoded hits the budget without an EOG token when generation was cut
     // off mid-thought (e.g. the whole budget spent on reasoning) rather than
     // finishing naturally -- surface it so callers don't mistake silence for
     // "the model had nothing to say".
-    result["truncated"] = n_decoded >= max_tokens;
+    result["truncated"] = n_decoded >= budget;
 
     // The parse rules live in a PEG arena that templates_apply serialized into
     // cparams.parser; common_chat_parse forwards params.parser to the PEG engine,
@@ -388,10 +395,19 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
     try {
         return el_generate_impl(handle, messages_json, tools_json, max_tokens);
     } catch (const std::exception &e) {
+        // A GPU-level failure here (e.g. Vulkan ErrorDeviceLost from a
+        // driver-side OOM) leaves the backend unusable: llama_context's
+        // destructor synchronizes the backend and will throw again from
+        // inside a noexcept destructor, which calls std::terminate before
+        // a caller-side try/catch in el_close ever runs. Mark the handle
+        // dead so el_close knows to skip teardown instead of trying (and
+        // failing) to catch the uncatchable.
+        if (handle) ((el_handle *) handle)->dead = true;
         json result = {{"content", ""}, {"tool_calls", json::array()}, {"reasoning", ""}, {"fallback", false}, {"error", e.what()}};
         errbuf = result.dump();
         return errbuf.c_str();
     } catch (...) {
+        if (handle) ((el_handle *) handle)->dead = true;
         json result = {{"content", ""}, {"tool_calls", json::array()}, {"reasoning", ""}, {"fallback", false}, {"error", "unknown exception in el_generate"}};
         errbuf = result.dump();
         return errbuf.c_str();
@@ -401,15 +417,18 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
 void el_close(void *handle) {
     auto *h = (el_handle *) handle;
     if (!h) return;
-    // A prior generate call may have already lost the GPU device (e.g. a
-    // Vulkan ErrorDeviceLost from a driver-side OOM); tearing down a context
-    // in that state throws from deep inside the backend, and an exception
-    // can't cross back out through this C ABI boundary without aborting the
-    // whole process (same hazard as el_generate, see its comment above).
-    try {
-        llama_free(h->ctx);
-        llama_model_free(h->model);
-    } catch (...) { /* device already gone; nothing left to clean up */ }
+    // If the GPU device was already lost mid-generate, freeing the context
+    // re-triggers the same failure from inside llama_context's destructor,
+    // which is implicitly noexcept -- throwing there calls std::terminate
+    // immediately, before it could ever reach a try/catch here. Leak
+    // deliberately instead: the process is exiting and the OS reclaims
+    // everything anyway.
+    if (h->dead) {
+        delete h;
+        return;
+    }
+    llama_free(h->ctx);
+    llama_model_free(h->model);
     delete h;
     llama_backend_free();
 }
