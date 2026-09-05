@@ -4,7 +4,7 @@ Elelem::Providers.register(:gguf) do
   gpu = %w[vulkan cuda metal].include?(Elelem::Net::GGUF.backend)
 
   Elelem::Net::GGUF.new(
-    model: ENV.fetch("GGUF_MODEL", File.expand_path("~/.elelem/models/Qwen3.8-27B-UD-Q4_K_XL.gguf")),
+    model: ENV.fetch("GGUF_MODEL", File.expand_path("~/.agents/models/Qwen3.8-27B-UD-Q4_K_XL.gguf")),
     # n_ctx/n_threads/n_gpu_layers are calculated, not configured: the native
     # shim asks llama.cpp for the model's trained max context (falling back to
     # smaller sizes if it doesn't fit) and picks thread count from the host's
