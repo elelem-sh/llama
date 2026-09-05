@@ -50,7 +50,9 @@ module Elelem
         if result["tool_calls"].to_a.empty? && !tools.empty? && result["content"].to_s.include?("\"name\"")
           Elelem.logger.debug("gguf: no tool calls parsed, tools offered")
         end
-        Elelem.logger.debug("gguf: reasoning: #{result["reasoning"]}") if result["reasoning"].to_s != ""
+        reasoning = result["reasoning"].to_s
+        Elelem.logger.debug("gguf: reasoning: #{reasoning}") unless reasoning.empty?
+        block&.call(type: "thinking", text: reasoning) unless reasoning.empty?
 
         content = result["content"].to_s
         block&.call(type: "saying", text: content) unless content.empty?
