@@ -6,7 +6,7 @@ require "json"
 module Elelem
   module Net
     class GGUF
-      NATIVE = File.expand_path("../native", __dir__)
+      NATIVE = File.expand_path("native", __dir__)
       SHIM = File.join(NATIVE, "libelelem_llama.so")
       V = Fiddle::TYPE_VOIDP
       I = Fiddle::TYPE_INT
@@ -29,9 +29,6 @@ module Elelem
         end
       end
 
-      # n_ctx, n_threads and max_tokens all take 0 to mean "auto": the native
-      # side derives the best value from the model and the hardware it is
-      # actually running on, rather than making every caller guess.
       def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 0, n_gpu_layers: 0, temp: 0.7, seed: -1)
         @max_tokens = max_tokens
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed)
@@ -62,14 +59,9 @@ module Elelem
         block&.call(type: "thinking", text: reasoning) unless reasoning.empty?
 
         content = result["content"].to_s
-        # Check error before truncation: a prompt that overflows the context
-        # window also comes back empty and truncated, and reporting that as
-        # "hit max_tokens" points at the wrong knob.
         if result["error"] && content.empty?
           content = "[error: #{result["error"]}]"
         elsif result["truncated"] && content.empty? && result.fetch("tool_calls", []).empty?
-          # Name the limit that actually bound: with max_tokens: 0 there is no
-          # max_tokens, and the budget came from the free context instead.
           limit = @max_tokens.positive? ? "max_tokens" : "available context"
           Elelem.logger.warn("gguf: hit #{limit} (#{result["n_decoded"]}/#{result["budget"]}) before producing a reply")
           content = "[no reply: ran out of output tokens before finishing]"
