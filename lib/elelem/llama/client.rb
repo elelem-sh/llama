@@ -23,7 +23,8 @@ module Elelem
           lib = Fiddle.dlopen(SHIM)
           {
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I], V),
-            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I], V)
+            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I], V),
+            close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID)
           }
         end
       end
@@ -32,6 +33,8 @@ module Elelem
         @max_tokens = max_tokens
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed)
         raise "gguf: failed to load model at #{model}" if @handle.null?
+
+        at_exit { self.class.functions[:close].call(@handle) }
       end
 
       def fetch(messages, tools = [], &block)
@@ -55,6 +58,10 @@ module Elelem
         block&.call(type: "thinking", text: reasoning) unless reasoning.empty?
 
         content = result["content"].to_s
+        if result["truncated"] && content.empty? && result.fetch("tool_calls", []).empty?
+          Elelem.logger.warn("gguf: hit max_tokens (#{result["n_decoded"]}) before producing a reply")
+          content = "[no reply: ran out of output tokens before finishing]"
+        end
         block&.call(type: "saying", text: content) unless content.empty?
 
         result.fetch("tool_calls", []).map do |call|

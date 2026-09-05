@@ -253,6 +253,11 @@ static const char *el_generate_impl(void *handle, const char *messages_json, con
     result["ms_decode"] = ms(t2, t3);
     result["n_prompt"] = n_prompt;
     result["n_decoded"] = n_decoded;
+    // n_decoded hits max_tokens without an EOG token when generation was cut
+    // off mid-thought (e.g. the whole budget spent on reasoning) rather than
+    // finishing naturally -- surface it so callers don't mistake silence for
+    // "the model had nothing to say".
+    result["truncated"] = n_decoded >= max_tokens;
 
     // The parse rules live in a PEG arena that templates_apply serialized into
     // cparams.parser; common_chat_parse forwards params.parser to the PEG engine,
@@ -396,9 +401,17 @@ const char *el_generate(void *handle, const char *messages_json, const char *too
 void el_close(void *handle) {
     auto *h = (el_handle *) handle;
     if (!h) return;
-    llama_free(h->ctx);
-    llama_model_free(h->model);
+    // A prior generate call may have already lost the GPU device (e.g. a
+    // Vulkan ErrorDeviceLost from a driver-side OOM); tearing down a context
+    // in that state throws from deep inside the backend, and an exception
+    // can't cross back out through this C ABI boundary without aborting the
+    // whole process (same hazard as el_generate, see its comment above).
+    try {
+        llama_free(h->ctx);
+        llama_model_free(h->model);
+    } catch (...) { /* device already gone; nothing left to clean up */ }
     delete h;
+    llama_backend_free();
 }
 
 }  // extern "C"
