@@ -32,7 +32,7 @@ struct el_handle {
                          // for how its KV cache is reused between calls
     int n_ctx;
     int n_threads;
-    float temp;       // <= 0 => greedy (deterministic); used by evals
+    float temp;
     uint32_t seed;
     bool dead = false; // set once the GPU device is lost; see el_close
     // Exactly the tokens currently resident in the KV cache, in position
@@ -101,10 +101,6 @@ static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threa
     return nullptr;
 }
 
-// temp <= 0 selects greedy/deterministic sampling; seed is the RNG seed for the
-// sampled path (both surfaced so callers -- notably the eval harness -- can pin them).
-// n_threads <= 0 means "auto": use llama.cpp's own physical-core/SMT-aware
-// detection (common_cpu_get_num_math) instead of a thread count picked in Ruby.
 void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed) {
     if (!g_backend) {
         llama_log_set(el_log_callback, nullptr);
