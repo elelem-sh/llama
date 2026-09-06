@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "elelem"
-require_relative "../llama"
+require "elelem/plugins"
+require_relative "../../llama"
 
 Elelem::Providers.register(:llama) do
   gpu = %w[vulkan cuda metal].include?(Elelem::Llama::Client.backend)

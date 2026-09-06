@@ -23,7 +23,8 @@ Gem::Specification.new do |spec|
     "lib/elelem/llama.rb",
     "lib/elelem/llama/version.rb",
     "lib/elelem/llama/client.rb",
-    "lib/elelem/llama/plugin.rb",
+    "lib/elelem/llama/plugins/provider.rb",
+    "exe/elelem-llama",
     "ext/elelem/llama/elelem.cpp",
     "ext/elelem/llama/extconf.rb",
   ]
@@ -31,9 +32,12 @@ Gem::Specification.new do |spec|
   # extension below, so it must ship in the gem.
   spec.files += Dir["vendor/llama.cpp/**/*"].select { |path| File.file?(path) }
   spec.extensions = ["ext/elelem/llama/extconf.rb"]
+  spec.bindir = "exe"
+  spec.executables = ["elelem-llama"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "elelem", "~> 0.1"
+  spec.add_dependency "elelem-plugins", "~> 0.1"
+  spec.add_dependency "elelem-cli", "~> 0.1"
   spec.add_dependency "fiddle", "~> 1.1"
   spec.add_dependency "json", "~> 2.21"
 end
