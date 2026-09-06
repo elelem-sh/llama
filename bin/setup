@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -e
+[ -n "$DEBUG" ] && set -x
+
+git submodule update --init --recursive
+bundle install
+
+GGUF_MODEL_DIR="$HOME/.agents/models"
+GGUF_MODEL_URL="https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+GGUF_MODEL_PATH="$GGUF_MODEL_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+
+if [ ! -f "$GGUF_MODEL_PATH" ]; then
+  mkdir -p "$GGUF_MODEL_DIR"
+  curl -fL --progress-bar -o "$GGUF_MODEL_PATH.part" "$GGUF_MODEL_URL"
+  mv "$GGUF_MODEL_PATH.part" "$GGUF_MODEL_PATH"
+fi

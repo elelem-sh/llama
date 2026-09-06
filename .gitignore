@@ -1,0 +1,15 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/pkg/
+/spec/reports/
+/tmp/
+*.bundle
+*.so
+*.o
+*.a
+*.gem
+/ext/elelem/llama/native
+/ext/elelem/llama/build/
+/ext/elelem/llama/Makefile
