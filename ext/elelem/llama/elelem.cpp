@@ -49,13 +49,13 @@ extern "C" {
   }
 
   static const int EL_MIN_CTX = 4096;
-  static const int EL_MAX_AUTO_CTX = 65536;
+  static const int EL_FALLBACK_CTX = 65536;
 
   static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threads) {
     int32_t trained_max = llama_model_n_ctx_train(model);
     uint32_t requested = n_ctx > 0 ? (uint32_t) n_ctx
-      : trained_max > 0 ? std::min((uint32_t) trained_max, (uint32_t) EL_MAX_AUTO_CTX)
-      : (uint32_t) EL_MAX_AUTO_CTX;
+      : trained_max > 0 ? (uint32_t) trained_max
+      : (uint32_t) EL_FALLBACK_CTX;
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx = requested;
     cp.n_threads = n_threads;
