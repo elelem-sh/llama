@@ -22,7 +22,6 @@ Gem::Specification.new do |spec|
     "lib/elelem/llama.rb",
     "lib/elelem/llama/version.rb",
     "lib/elelem/llama/client.rb",
-    "lib/elelem/llama/plugins/provider.rb",
     "exe/elelem-llama",
     "ext/elelem/llama/elelem.cpp",
     "ext/elelem/llama/extconf.rb",
