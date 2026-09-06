@@ -33,8 +33,7 @@ Gem::Specification.new do |spec|
   spec.executables = ["elelem-llama"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "elelem-plugins", "~> 0.1"
-  spec.add_dependency "elelem-cli", "~> 0.1"
+  spec.add_dependency "elelem", "~> 0.10"
   spec.add_dependency "fiddle", "~> 1.1"
   spec.add_dependency "json", "~> 2.21"
 end

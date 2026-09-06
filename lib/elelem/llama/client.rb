@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require "fiddle"
-require "json"
-
 module Elelem
   module Llama
     class Client
