@@ -5,11 +5,11 @@ require "json"
 require "elelem"
 
 require_relative "llama/version"
-require_relative "llama/client"
+require_relative "llama/provider"
 
 Elelem.configure do |config|
   config.provider(:llama) do
-    gpu = %w[vulkan cuda metal].include?(Elelem::Llama::Client.backend)
+    gpu = %w[vulkan cuda metal].include?(Elelem::Llama::Provider.backend)
 
     default_model = -> {
       dir = File.expand_path("~/.agents/models")
@@ -24,7 +24,7 @@ Elelem.configure do |config|
       end
     }
 
-    Elelem::Llama::Client.new(
+    Elelem::Llama::Provider.new(
       model: ENV.fetch("ELELEM_GGUF_MODEL") { default_model.call },
       n_ctx: 0,
       n_threads: 0,

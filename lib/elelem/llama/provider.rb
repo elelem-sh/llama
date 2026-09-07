@@ -2,7 +2,7 @@
 
 module Elelem
   module Llama
-    class Client
+    class Provider
       NATIVE = File.expand_path("../../../ext/elelem/llama/native", __dir__)
       SHIM = File.join(NATIVE, "libelelem_llama.so")
       V = Fiddle::TYPE_VOIDP
