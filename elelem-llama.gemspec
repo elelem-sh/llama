@@ -34,5 +34,5 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "elelem", "~> 0.11"
   spec.add_dependency "fiddle", "~> 1.1"
-  spec.add_dependency "json", "~> 2.21"
+  spec.add_dependency "json", "~> 3.0"
 end
