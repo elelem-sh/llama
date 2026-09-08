@@ -66,8 +66,8 @@ def detect_backend
   return forced unless forced.empty? || forced == "auto"
 
   return "cuda" if which("nvcc")
-  return "hip" if hip_available?
   return "vulkan" if which("glslc") && vulkan_loader?
+  return "hip" if hip_available?
   "cpu"
 end
 
