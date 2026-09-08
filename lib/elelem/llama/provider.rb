@@ -20,7 +20,7 @@ module Elelem
           lib = Fiddle.dlopen(SHIM)
           {
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I], V),
-            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I], V),
+            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I, V, V], V, need_gvl: true),
             close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID)
           }
         end
@@ -35,7 +35,18 @@ module Elelem
       end
 
       def fetch(messages, tools = [], &block)
-        ptr = self.class.functions[:generate].call(@handle, JSON.generate(messages), JSON.generate(tools), @max_tokens)
+        streamed = false
+        on_token = Fiddle::Closure::BlockCaller.new(Fiddle::TYPE_VOID, [V, V]) do |_userdata, piece|
+          streamed = true
+          text = Fiddle::Pointer.new(piece).to_s.force_encoding(Encoding::UTF_8).scrub
+          block&.call(type: "thinking", text: text)
+        rescue Exception => e # rubocop:disable Lint/RescueException
+          Elelem.logger.warn("llama: streaming callback failed: #{e.message}")
+        end
+
+        ptr = self.class.functions[:generate].call(
+          @handle, JSON.generate(messages), JSON.generate(tools), @max_tokens, on_token, nil
+        )
         result = JSON.parse(Fiddle::Pointer.new(ptr).to_s)
 
         Elelem.logger.debug("llama: tool-call fallback used") if result["fallback"]
@@ -53,7 +64,7 @@ module Elelem
         end
         reasoning = result["reasoning"].to_s
         Elelem.logger.debug("llama: reasoning: #{reasoning}") unless reasoning.empty?
-        block&.call(type: "thinking", text: reasoning) unless reasoning.empty?
+        block&.call(type: "thinking", text: reasoning) unless reasoning.empty? || streamed
 
         content = result["content"].to_s
         if result["error"] && content.empty?

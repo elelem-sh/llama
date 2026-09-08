@@ -23,8 +23,28 @@ extern "C" {
     float temp;
     uint32_t seed;
     bool dead = false;
+    bool in_generate = false;
     std::vector<llama_token> cached;
   };
+
+  typedef void (*el_token_cb)(void *userdata, const char *piece);
+
+  // Returns the length of the prefix of `s` that ends on a complete UTF-8
+  // sequence, so callers don't flush a truncated multi-byte codepoint.
+  static size_t el_utf8_safe_len(const std::string &s) {
+    size_t n = s.size();
+    size_t back = 0;
+    while (back < n && back < 4 && ((unsigned char) s[n - 1 - back] & 0xC0) == 0x80) back++;
+    if (back == n) return 0;
+    unsigned char lead = (unsigned char) s[n - 1 - back];
+    size_t seq_len = 1;
+    if ((lead & 0xE0) == 0xC0) seq_len = 2;
+    else if ((lead & 0xF0) == 0xE0) seq_len = 3;
+    else if ((lead & 0xF8) == 0xF0) seq_len = 4;
+    else if (lead >= 0x80) seq_len = back + 1; // stray continuation/invalid lead; hold it
+    if (back + 1 < seq_len) return n - back - 1;
+    return n;
+  }
 
   static bool g_backend = false;
 
@@ -154,7 +174,7 @@ extern "C" {
     return buf.c_str();
   }
 
-  static const char *el_generate_impl(void *handle, const char *messages_json, const char *tools_json, int max_tokens) {
+  static const char *el_generate_impl(void *handle, const char *messages_json, const char *tools_json, int max_tokens, el_token_cb on_token, void *userdata) {
     auto *h = (el_handle *) handle;
     const llama_vocab *vocab = llama_model_get_vocab(h->model);
     static thread_local std::string buf;
@@ -239,22 +259,40 @@ extern "C" {
     int budget = max_tokens > 0 ? std::min(max_tokens, headroom) : std::max(1, headroom / 2);
 
     std::string output;
+    std::string pending;
     char piece[512];
     int n_decoded = 0;
     bool eog = false;
     bool decode_failed = false;
+    auto last_flush = std::chrono::steady_clock::now();
     for (int t = 0; t < budget; t++) {
       llama_token id = llama_sampler_sample(smpl.get(), ctx, -1);
       if (llama_vocab_is_eog(vocab, id)) { eog = true; break; }
       int np = llama_token_to_piece(vocab, id, piece, (int32_t) sizeof(piece), 0, true);
-      if (np > 0) output.append(piece, np);
+      if (np > 0) {
+        output.append(piece, np);
+        if (on_token) pending.append(piece, np);
+      }
       n_decoded++;
+      if (on_token && !pending.empty()) {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration<double, std::milli>(now - last_flush).count() >= 50.0) {
+          size_t safe_len = el_utf8_safe_len(pending);
+          if (safe_len > 0) {
+            std::string chunk = pending.substr(0, safe_len);
+            on_token(userdata, chunk.c_str());
+            pending.erase(0, safe_len);
+          }
+          last_flush = now;
+        }
+      }
       if (t + 1 < budget && llama_decode(ctx, llama_batch_get_one(&id, 1)) != 0) {
         decode_failed = true;
         break;
       }
       if (t + 1 < budget) h->cached.push_back(id);
     }
+    if (on_token && !pending.empty()) on_token(userdata, pending.c_str());
     auto t3 = std::chrono::steady_clock::now();
 
     if (!decode_failed) guard.committed = true;
@@ -363,14 +401,22 @@ extern "C" {
     return buf.c_str();
   }
 
-  const char *el_generate(void *handle, const char *messages_json, const char *tools_json, int max_tokens) {
+  const char *el_generate(void *handle, const char *messages_json, const char *tools_json, int max_tokens, el_token_cb on_token, void *userdata) {
     static thread_local std::string errbuf;
     if (!handle) return el_error(errbuf, "null handle");
     if (!messages_json) return el_error(errbuf, "null messages");
-    if (((el_handle *) handle)->dead) return el_error(errbuf, "handle is unusable after a previous fatal error");
+    auto *h = (el_handle *) handle;
+    if (h->dead) return el_error(errbuf, "handle is unusable after a previous fatal error");
+    if (h->in_generate) return el_error(errbuf, "generate is not reentrant");
+
+    h->in_generate = true;
+    struct reentrancy_guard {
+      el_handle *h;
+      ~reentrancy_guard() { h->in_generate = false; }
+    } guard{h};
 
     try {
-      return el_generate_impl(handle, messages_json, tools_json, max_tokens);
+      return el_generate_impl(handle, messages_json, tools_json, max_tokens, on_token, userdata);
     } catch (const std::exception &e) {
       ((el_handle *) handle)->dead = true;
       return el_error(errbuf, e.what());
