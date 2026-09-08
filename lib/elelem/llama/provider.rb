@@ -32,20 +32,27 @@ module Elelem
         raise "llama: failed to load model at #{model}" if @handle.null?
 
         at_exit { self.class.functions[:close].call(@handle) }
-      end
 
-      def fetch(messages, tools = [], &block)
-        streamed = false
-        on_token = Fiddle::Closure::BlockCaller.new(Fiddle::TYPE_VOID, [V, V]) do |_userdata, piece|
-          streamed = true
+        @streamed = false
+        @block = nil
+        # Built once: each Fiddle::Closure::BlockCaller allocates a native FFI
+        # trampoline, and el_generate's reentrancy guard already prevents
+        # concurrent native calls on this handle, so one instance is safe to reuse.
+        @on_token = Fiddle::Closure::BlockCaller.new(Fiddle::TYPE_VOID, [V, V]) do |_userdata, piece|
+          @streamed = true
           text = Fiddle::Pointer.new(piece).to_s.force_encoding(Encoding::UTF_8).scrub
-          block&.call(type: "thinking", text: text)
+          @block&.call(type: "thinking", text: text)
         rescue Exception => e # rubocop:disable Lint/RescueException
           Elelem.logger.warn("llama: streaming callback failed: #{e.message}")
         end
+      end
+
+      def fetch(messages, tools = [], &block)
+        @streamed = false
+        @block = block
 
         ptr = self.class.functions[:generate].call(
-          @handle, JSON.generate(messages), JSON.generate(tools), @max_tokens, on_token, nil
+          @handle, JSON.generate(messages), JSON.generate(tools), @max_tokens, @on_token, nil
         )
         result = JSON.parse(Fiddle::Pointer.new(ptr).to_s)
 
@@ -64,7 +71,7 @@ module Elelem
         end
         reasoning = result["reasoning"].to_s
         Elelem.logger.debug("llama: reasoning: #{reasoning}") unless reasoning.empty?
-        block&.call(type: "thinking", text: reasoning) unless reasoning.empty? || streamed
+        block&.call(type: "thinking", text: reasoning) unless reasoning.empty? || @streamed
 
         content = result["content"].to_s
         if result["error"] && content.empty?
