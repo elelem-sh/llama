@@ -71,6 +71,36 @@ extern "C" {
   static const int EL_MIN_CTX = 4096;
   static const int EL_FALLBACK_CTX = 65536;
 
+  // Quantized K/V cache trades a little quality for a lot less memory
+  // bandwidth; llama.cpp auto-enables flash_attn (already our default: AUTO)
+  // when a quantized V type is requested, so this is safe to set unconditionally.
+  static ggml_type el_kv_cache_type() {
+    static const ggml_type cached = [] {
+      const char *raw = std::getenv("ELELEM_KV_CACHE_TYPE");
+      std::string v = raw ? raw : "q8_0";
+      std::transform(v.begin(), v.end(), v.begin(),
+          [](unsigned char c) { return (char) std::tolower(c); });
+      if (v == "f16") return GGML_TYPE_F16;
+      if (v == "f32") return GGML_TYPE_F32;
+      if (v == "q4_0") return GGML_TYPE_Q4_0;
+      if (v == "q8_0") return GGML_TYPE_Q8_0;
+      return GGML_TYPE_Q8_0;
+    }();
+    return cached;
+  }
+
+  static double el_env_double(const char *name, double fallback) {
+    const char *raw = std::getenv(name);
+    if (!raw || !*raw) return fallback;
+    try { return std::stod(raw); } catch (...) { return fallback; }
+  }
+
+  static int el_env_int(const char *name, int fallback) {
+    const char *raw = std::getenv(name);
+    if (!raw || !*raw) return fallback;
+    try { return std::stoi(raw); } catch (...) { return fallback; }
+  }
+
   static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threads) {
     int32_t trained_max = llama_model_n_ctx_train(model);
     uint32_t requested = n_ctx > 0 ? (uint32_t) n_ctx
@@ -80,6 +110,8 @@ extern "C" {
     cp.n_ctx = requested;
     cp.n_threads = n_threads;
     cp.n_threads_batch = n_threads;
+    cp.type_k = el_kv_cache_type();
+    cp.type_v = el_kv_cache_type();
     llama_context *ctx = llama_init_from_model(model, cp);
     if (ctx) return ctx;
 
@@ -160,6 +192,10 @@ extern "C" {
     return out;
   }
 
+  // Returned `const char*` values from this file point into a thread_local
+  // std::string owned by the callee. The pointer stays valid until that
+  // thread calls into this shim again, which is fine because the Ruby side
+  // copies the string out (Fiddle::Pointer#to_s) before making another call.
   static const char *el_error(std::string &buf, const std::string &message) {
     json result = {
       {"content", ""},
@@ -212,8 +248,17 @@ extern "C" {
     if (h->temp <= 0.0f) {
       llama_sampler_chain_add(smpl.get(), llama_sampler_init_greedy());
     } else {
-      llama_sampler_chain_add(smpl.get(), llama_sampler_init_top_k(40));
-      llama_sampler_chain_add(smpl.get(), llama_sampler_init_top_p(0.95f, 1));
+      int top_k = el_env_int("ELELEM_TOP_K", 40);
+      double top_p = el_env_double("ELELEM_TOP_P", 0.95);
+      int penalty_last_n = el_env_int("ELELEM_REPEAT_LAST_N", 0); // 0 = disabled, matches llama.cpp default
+      double penalty_repeat = el_env_double("ELELEM_REPEAT_PENALTY", 1.0); // 1.0 = disabled
+
+      llama_sampler_chain_add(smpl.get(), llama_sampler_init_top_k(top_k));
+      llama_sampler_chain_add(smpl.get(), llama_sampler_init_top_p((float) top_p, 1));
+      if (penalty_last_n != 0) {
+        llama_sampler_chain_add(smpl.get(), llama_sampler_init_penalties(
+            llama_vocab_n_tokens(vocab), penalty_last_n, (float) penalty_repeat, 0.0f, 0.0f));
+      }
       llama_sampler_chain_add(smpl.get(), llama_sampler_init_temp(h->temp));
       llama_sampler_chain_add(smpl.get(), llama_sampler_init_dist(h->seed));
     }
@@ -255,8 +300,11 @@ extern "C" {
     }
     auto t2 = std::chrono::steady_clock::now();
 
+    // max_tokens<=0 means "no explicit limit": use the full remaining context.
+    // Generation still stops early on EOG, so this only matters for models/
+    // prompts that would otherwise ramble to the edge of the context window.
     int headroom = h->n_ctx - n_prompt;
-    int budget = max_tokens > 0 ? std::min(max_tokens, headroom) : std::max(1, headroom / 2);
+    int budget = max_tokens > 0 ? std::min(max_tokens, headroom) : std::max(1, headroom);
 
     std::string output;
     std::string pending;
