@@ -8,11 +8,8 @@ VENDOR    = File.join(GEM_ROOT, "vendor", "llama.cpp")
 BUILD_DIR = File.join(EXT_DIR, "build")
 NATIVE    = File.join(GEM_ROOT, "ext", "elelem", "llama", "native")
 STAMP     = File.join(BUILD_DIR, ".elelem_backend") # last backend built here
-VALID_BACKENDS = %w[cpu vulkan cuda hip].freeze
-
-if RbConfig::CONFIG["host_os"] =~ /darwin/
-  abort "elelem: macOS/Metal is not supported yet -- Linux (CPU/CUDA/Vulkan/HIP) only."
-end
+VALID_BACKENDS = %w[cpu vulkan cuda hip metal].freeze
+DARWIN = RbConfig::CONFIG["host_os"] =~ /darwin/
 
 class BuildError < StandardError; end
 
@@ -54,7 +51,8 @@ def gpu_flags(backend)
     "cpu"    => [],                     # GGML_NATIVE is ON by default -> host CPU SIMD
     "vulkan" => ["-DGGML_VULKAN=ON"],
     "cuda"   => ["-DGGML_CUDA=ON"],
-    "hip"    => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx1100" }}"]
+    "hip"    => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx1100" }}"],
+    "metal"  => ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"]
   }.fetch(backend) { abort "elelem: unknown backend #{backend.inspect}" }
 end
 
@@ -65,6 +63,7 @@ def detect_backend
   end
   return forced unless forced.empty? || forced == "auto"
 
+  return "metal" if DARWIN
   return "cuda" if which("nvcc")
   return "vulkan" if which("glslc") && vulkan_loader?
   return "hip" if hip_available?
@@ -103,20 +102,29 @@ if File.exist?(STAMP) && File.read(STAMP).strip != backend
 end
 
 def link_shim(libdir)
+  ext = DARWIN ? "dylib" : "so"
+  shim = File.join(NATIVE, "libelelem_llama.#{ext}")
+
   FileUtils.mkdir_p(NATIVE)
-  FileUtils.rm_f(Dir.glob(File.join(NATIVE, "*.so*")))
-  FileUtils.cp(Dir.glob(File.join(libdir, "*.so*")), NATIVE)
+  FileUtils.rm_f(Dir.glob(File.join(NATIVE, "*.#{ext}*")))
+  FileUtils.cp(Dir.glob(File.join(libdir, "*.#{ext}*")), NATIVE)
 
   cxx = ENV["CXX"] || "c++"
+  link_flags = if DARWIN
+    ["-Wl,-rpath,@loader_path", "-Wl,-install_name,@rpath/libelelem_llama.dylib",
+     "-framework", "Metal", "-framework", "Foundation", "-framework", "Accelerate"]
+  else
+    ["-Wl,-rpath,$ORIGIN"]
+  end
   run(cxx, "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared", "-fPIC",
       "-I", File.join(VENDOR, "include"),
       "-I", File.join(VENDOR, "ggml", "include"),
       "-I", File.join(VENDOR, "common"),   # chat.h (common_chat)
       "-I", File.join(VENDOR, "vendor"),   # nlohmann/json.hpp
       File.join(EXT_DIR, "elelem.cpp"),
-      "-o", File.join(NATIVE, "libelelem_llama.so"),
+      "-o", shim,
       "-L", libdir, "-lllama-common", "-lllama",
-      "-Wl,-rpath,$ORIGIN")
+      *link_flags)
 end
 
 begin

@@ -4,7 +4,7 @@ module Elelem
   module Llama
     class Provider
       NATIVE = File.expand_path("../../../ext/elelem/llama/native", __dir__)
-      SHIM = File.join(NATIVE, "libelelem_llama.so")
+      SHIM = File.join(NATIVE, "libelelem_llama.#{RbConfig::CONFIG["host_os"] =~ /darwin/ ? "dylib" : "so"}")
       V = Fiddle::TYPE_VOIDP
       I = Fiddle::TYPE_INT
       F = Fiddle::TYPE_FLOAT
