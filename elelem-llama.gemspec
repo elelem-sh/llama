@@ -26,7 +26,14 @@ Gem::Specification.new do |spec|
     "ext/elelem/llama/elelem.cpp",
     "ext/elelem/llama/extconf.rb",
   ]
-  spec.files += Dir["vendor/llama.cpp/**/*"].select { |path| File.file?(path) }
+  # Only what extconf.rb's cmake build (LLAMA_BUILD_COMMON=ON, tests/docs/
+  # examples/tools/server all OFF) actually needs to configure and compile.
+  # Anchored to the vendor root so this doesn't also strip required nested
+  # dirs with the same name, e.g. src/models/ (per-architecture model code).
+  vendor_exclude = %r{\Avendor/llama\.cpp/(tests|docs|models|examples|tools|\.github|gguf-py|scripts)/}
+  spec.files += Dir["vendor/llama.cpp/**/*"].select do |path|
+    File.file?(path) && path !~ vendor_exclude
+  end
   spec.extensions = ["ext/elelem/llama/extconf.rb"]
   spec.bindir = "exe"
   spec.executables = ["elelem-llama"]
