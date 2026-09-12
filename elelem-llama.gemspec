@@ -16,6 +16,7 @@ Gem::Specification.new do |spec|
   spec.metadata["allowed_push_host"] = "https://rubygems.org"
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
+  spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files = [
     "LICENSE.txt",
@@ -24,7 +25,7 @@ Gem::Specification.new do |spec|
     "lib/elelem/llama/provider.rb",
     "exe/elelem-llama",
     "ext/elelem/llama/elelem.cpp",
-    "ext/elelem/llama/extconf.rb",
+    "ext/elelem/llama/extconf.rb"
   ]
   # Only what extconf.rb's cmake build (LLAMA_BUILD_COMMON=ON, tests/docs/
   # examples/tools/server all OFF) actually needs to configure and compile.
