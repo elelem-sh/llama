@@ -61,10 +61,10 @@ module Elelem
         Elelem.logger.warn("llama: generate error: #{result["error"]}") if result["error"]
         if result["ms_decode"]
           Elelem.logger.debug(format(
-            "llama: reset=%.0fms prefill=%.0fms (n=%d, %d reused) decode=%.0fms (n=%d)",
-            result["ms_reset"], result["ms_prefill"], result["n_prompt"], result["n_reused"].to_i,
-            result["ms_decode"], result["n_decoded"]
-          ))
+                                "llama: reset=%.0fms prefill=%.0fms (n=%d, %d reused) decode=%.0fms (n=%d)",
+                                result["ms_reset"], result["ms_prefill"], result["n_prompt"], result["n_reused"].to_i,
+                                result["ms_decode"], result["n_decoded"]
+                              ))
         end
         if result["tool_calls"].to_a.empty? && !tools.empty? && result["content"].to_s.include?("\"name\"")
           Elelem.logger.debug("llama: no tool calls parsed, tools offered")
@@ -78,7 +78,8 @@ module Elelem
           content = "[error: #{result["error"]}]"
         elsif result["truncated"] && content.empty? && result.fetch("tool_calls", []).empty?
           limit = @max_tokens.positive? ? "max_tokens" : "available context"
-          Elelem.logger.warn("llama: hit #{limit} (#{result["n_decoded"]}/#{result["budget"]}) before producing a reply")
+          Elelem.logger.warn("llama: hit #{limit} (#{result["n_decoded"]}/#{result["budget"]}) before producing " \
+                             "a reply")
           content = "[no reply: ran out of output tokens before finishing]"
         end
         block&.call(type: "saying", text: content) unless content.empty?

@@ -14,8 +14,8 @@ DARWIN = RbConfig::CONFIG["host_os"] =~ /darwin/
 class BuildError < StandardError; end
 
 def run(*cmd)
-  warn "elelem: + #{cmd.join(' ')}"
-  system(*cmd) || raise(BuildError, "build step failed: #{cmd.join(' ')}")
+  warn "elelem: + #{cmd.join(" ")}"
+  system(*cmd) || raise(BuildError, "build step failed: #{cmd.join(" ")}")
 end
 
 def which(cmd)
@@ -27,6 +27,7 @@ end
 
 def vulkan_loader?
   return true if which("vulkaninfo")
+
   %w[/usr/lib64 /usr/lib /usr/local/lib /lib64 /lib].any? do |dir|
     !Dir.glob(File.join(dir, "libvulkan.so*")).empty?
   end
@@ -48,18 +49,20 @@ end
 
 def gpu_flags(backend)
   {
-    "cpu"    => [],                     # GGML_NATIVE is ON by default -> host CPU SIMD
+    "cpu" => [], # GGML_NATIVE is ON by default -> host CPU SIMD
     "vulkan" => ["-DGGML_VULKAN=ON"],
-    "cuda"   => ["-DGGML_CUDA=ON"],
-    "hip"    => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx1100" }}"],
-    "metal"  => ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"]
+    "cuda" => ["-DGGML_CUDA=ON"],
+    "hip" => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{ENV.fetch("ELELEM_HIP_ARCH") do
+      hip_gfx_target || "gfx1100"
+    end}"],
+    "metal" => ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"]
   }.fetch(backend) { abort "elelem: unknown backend #{backend.inspect}" }
 end
 
 def detect_backend
   forced = ENV["ELELEM_LLAMA_BACKEND"].to_s.strip.downcase
   unless forced.empty? || forced == "auto" || VALID_BACKENDS.include?(forced)
-    abort "elelem: ELELEM_LLAMA_BACKEND=#{forced.inspect} invalid; use auto|#{VALID_BACKENDS.join('|')}"
+    abort "elelem: ELELEM_LLAMA_BACKEND=#{forced.inspect} invalid; use auto|#{VALID_BACKENDS.join("|")}"
   end
   return forced unless forced.empty? || forced == "auto"
 
@@ -67,6 +70,7 @@ def detect_backend
   return "cuda" if which("nvcc")
   return "vulkan" if which("glslc") && vulkan_loader?
   return "hip" if hip_available?
+
   "cpu"
 end
 
@@ -111,11 +115,11 @@ def link_shim(libdir)
 
   cxx = ENV["CXX"] || "c++"
   link_flags = if DARWIN
-    ["-Wl,-rpath,@loader_path", "-Wl,-install_name,@rpath/libelelem_llama.dylib",
-     "-framework", "Metal", "-framework", "Foundation", "-framework", "Accelerate"]
-  else
-    ["-Wl,-rpath,$ORIGIN"]
-  end
+                 ["-Wl,-rpath,@loader_path", "-Wl,-install_name,@rpath/libelelem_llama.dylib",
+                  "-framework", "Metal", "-framework", "Foundation", "-framework", "Accelerate"]
+               else
+                 ["-Wl,-rpath,$ORIGIN"]
+               end
   run(cxx, "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared", "-fPIC",
       "-I", File.join(VENDOR, "include"),
       "-I", File.join(VENDOR, "ggml", "include"),
@@ -133,6 +137,7 @@ begin
   link_shim(File.join(BUILD_DIR, "bin"))
 rescue BuildError => e
   raise if backend == "cpu"
+
   warn "elelem: #{backend} build failed (#{e.message}); falling back to CPU"
   FileUtils.rm_rf(BUILD_DIR)
   backend = "cpu"

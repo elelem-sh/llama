@@ -11,16 +11,17 @@ Elelem.configure do |config|
   config.provider(:llama) do
     gpu = %w[vulkan cuda metal].include?(Elelem::Llama::Provider.backend)
 
-    default_model = -> {
+    default_model = lambda {
       dir = File.expand_path("~/.agents/models")
       link = File.join(dir, "default.gguf")
       return link if File.symlink?(link) || File.exist?(link)
 
-      models = Dir[File.join(dir, "*.gguf")].sort
+      models = Dir[File.join(dir, "*.gguf")]
       case models.length
       when 1 then models.first
       when 0 then raise "no .gguf model found in #{dir}. Set ELELEM_GGUF_MODEL=/path/to/model.gguf"
-      else raise "multiple .gguf models found in #{dir}. Set ELELEM_GGUF_MODEL=/path/to/model.gguf or symlink #{link} to the one to use by default"
+      else raise "multiple .gguf models found in #{dir}. Set ELELEM_GGUF_MODEL=/path/to/model.gguf or symlink " \
+                 "#{link} to the one to use by default"
       end
     }
 
