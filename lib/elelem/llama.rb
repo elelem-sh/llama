@@ -8,7 +8,7 @@ require_relative "llama/version"
 require_relative "llama/provider"
 
 Elelem.configure do |config|
-  config.provider(:llama) do
+  config.provider(:llama) do |model: nil, **|
     gpu = %w[vulkan cuda metal].include?(Elelem::Llama::Provider.backend)
 
     default_model = lambda {
@@ -26,7 +26,7 @@ Elelem.configure do |config|
     }
 
     Elelem::Llama::Provider.new(
-      model: ENV.fetch("ELELEM_GGUF_MODEL") { default_model.call },
+      model: model || ENV.fetch("ELELEM_GGUF_MODEL") { default_model.call },
       n_ctx: 0,
       n_threads: 0,
       n_gpu_layers: gpu ? 999 : 0,
