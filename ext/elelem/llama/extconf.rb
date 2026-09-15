@@ -127,7 +127,7 @@ def link_shim(libdir)
       "-I", File.join(VENDOR, "vendor"),   # nlohmann/json.hpp
       File.join(EXT_DIR, "elelem.cpp"),
       "-o", shim,
-      "-L", libdir, "-lllama-common", "-lllama",
+      "-L", libdir, "-lllama-common", "-lllama", "-lggml", "-lggml-base",
       *link_flags)
 end
 

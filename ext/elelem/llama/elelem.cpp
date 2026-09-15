@@ -1,6 +1,7 @@
 #include "llama.h"
 #include "chat.h"
 #include "common.h"
+#include "ggml-backend.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
@@ -68,6 +69,13 @@ extern "C" {
     fputs(text, stderr);
   }
 
+  static void el_ensure_backend() {
+    if (g_backend) return;
+    llama_log_set(el_log_callback, nullptr);
+    llama_backend_init();
+    g_backend = true;
+  }
+
   static const int EL_MIN_CTX = 4096;
   static const int EL_FALLBACK_CTX = 65536;
 
@@ -104,7 +112,7 @@ extern "C" {
   static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threads) {
     int32_t trained_max = llama_model_n_ctx_train(model);
     uint32_t requested = n_ctx > 0 ? (uint32_t) n_ctx
-      : trained_max > 0 ? (uint32_t) trained_max
+      : trained_max > 0 ? std::min((uint32_t) trained_max, (uint32_t) EL_FALLBACK_CTX)
       : (uint32_t) EL_FALLBACK_CTX;
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx = requested;
@@ -123,12 +131,17 @@ extern "C" {
     return nullptr;
   }
 
+  long el_gpu_free_memory() {
+    el_ensure_backend();
+    ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
+    if (!dev) return -1;
+    size_t free_mem = 0, total_mem = 0;
+    ggml_backend_dev_memory(dev, &free_mem, &total_mem);
+    return (long) free_mem;
+  }
+
   void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed) {
-    if (!g_backend) {
-      llama_log_set(el_log_callback, nullptr);
-      llama_backend_init();
-      g_backend = true;
-    }
+    el_ensure_backend();
 
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = n_gpu_layers;

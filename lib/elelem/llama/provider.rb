@@ -15,13 +15,19 @@ module Elelem
         "cpu"
       end
 
+      def self.gpu_free_memory
+        bytes = functions[:gpu_free_memory].call
+        bytes.negative? ? nil : bytes
+      end
+
       def self.functions
         @functions ||= begin
           lib = Fiddle.dlopen(SHIM)
           {
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I], V),
             generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I, V, V], V, need_gvl: true),
-            close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID)
+            close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID),
+            gpu_free_memory: Fiddle::Function.new(lib["el_gpu_free_memory"], [], Fiddle::TYPE_LONG)
           }
         end
       end
