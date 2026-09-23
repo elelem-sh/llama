@@ -5,25 +5,12 @@ require "json"
 require "elelem"
 
 require_relative "llama/version"
+require_relative "llama/model_resolver"
 require_relative "llama/provider"
 
 Elelem.configure do |config|
   config.provider(:llama) do |model: nil, **|
-    default_model = lambda {
-      dir = File.expand_path("~/.agents/models")
-      link = File.join(dir, "default.gguf")
-      return link if File.symlink?(link) || File.exist?(link)
-
-      models = Dir[File.join(dir, "*.gguf")]
-      case models.length
-      when 1 then models.first
-      when 0 then raise "no .gguf model found in #{dir}. Set ELELEM_GGUF_MODEL=/path/to/model.gguf"
-      else raise "multiple .gguf models found in #{dir}. Set ELELEM_GGUF_MODEL=/path/to/model.gguf or symlink " \
-                 "#{link} to the one to use by default"
-      end
-    }
-
-    model_path = model || ENV.fetch("ELELEM_GGUF_MODEL") { default_model.call }
+    model_path = Elelem::Llama::ModelResolver.resolve(model:)
 
     default_gpu_layers = lambda {
       backend = Elelem::Llama::Provider.backend

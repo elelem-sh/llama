@@ -22,6 +22,7 @@ Gem::Specification.new do |spec|
     "LICENSE.txt",
     "lib/elelem/llama.rb",
     "lib/elelem/llama/version.rb",
+    "lib/elelem/llama/model_resolver.rb",
     "lib/elelem/llama/provider.rb",
     "exe/elelem-llama",
     "ext/elelem/llama/elelem.cpp",

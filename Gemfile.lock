@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    elelem-llama (0.3.0)
+    elelem-llama (0.3.1)
       elelem (~> 0.13)
       fiddle (~> 1.1)
       json (~> 3.0)
@@ -123,7 +123,7 @@ CHECKSUMS
   bundler (4.0.20) sha256=7978a8ac648767f5e635bc522445b79e80a52b907a39a36c2d8085ed6bc762ae
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   elelem (0.13.0)
-  elelem-llama (0.3.0)
+  elelem-llama (0.3.1)
   erb (6.0.7) sha256=c5ca6dc25b0ef974a44dc8f59fe847577122483b1968a38dec305c60bf91ee92
   fiddle (1.1.8) sha256=7fa8ee3627271497f3add5503acdbc3f40b32f610fc1cf49634f083ef3f32eee
   forwardable (1.4.0) sha256=f1cd40cc9812937980e1c76f1aa053660990a7c9b6a98fc37d945468afcce838
