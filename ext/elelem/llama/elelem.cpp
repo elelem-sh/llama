@@ -134,6 +134,7 @@ extern "C" {
   long el_gpu_free_memory() {
     el_ensure_backend();
     ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
+    if (!dev) dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_IGPU);
     if (!dev) return -1;
     size_t free_mem = 0, total_mem = 0;
     ggml_backend_dev_memory(dev, &free_mem, &total_mem);
