@@ -1,0 +1,10 @@
+{
+  "bootstrap-sha": "cb86eaac81d2512b77c21592d10b8896018b62af",
+  "packages": {
+    ".": {
+      "release-type": "ruby",
+      "package-name": "elelem-llama",
+      "version-file": "lib/elelem/llama/version.rb"
+    }
+  }
+}
