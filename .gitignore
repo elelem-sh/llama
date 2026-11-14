@@ -13,3 +13,4 @@
 /ext/elelem/llama/native
 /ext/elelem/llama/build/
 /ext/elelem/llama/Makefile
+Gemfile.lock
