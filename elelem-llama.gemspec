@@ -41,7 +41,7 @@ Gem::Specification.new do |spec|
   spec.executables = ["elelem-llama"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "elelem", "~> 0.13"
+  spec.add_dependency "elelem", ">= 0.13", "< 1"
   spec.add_dependency "fiddle", "~> 1.1"
   spec.add_dependency "json", "~> 3.0"
 end
