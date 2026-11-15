@@ -39,6 +39,10 @@ module Elelem
         (@shared ||= {})[options] ||= new(**options)
       end
 
+      def self.gpu_layers_for(model_path)
+        (@gpu_layers ||= {})[model_path] ||= yield
+      end
+
       def self.close_at_exit(handle)
         at_exit { functions[:close].call(handle) }
       end
