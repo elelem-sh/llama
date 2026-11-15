@@ -21,7 +21,7 @@ Elelem.configure do |config|
       free && File.size(model_path) < free * 0.8 ? "999" : "0"
     }
 
-    Elelem::Llama::Provider.new(
+    Elelem::Llama::Provider.shared(
       model: model_path,
       n_ctx: Integer(ENV.fetch("ELELEM_GGUF_N_CTX", "0")),
       n_threads: 0,

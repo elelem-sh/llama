@@ -32,12 +32,23 @@ module Elelem
         end
       end
 
+      # One loaded model per set of options. /provider llama builds the provider
+      # again, and loading the weights a second time would double RAM and VRAM.
+      # The instance is shared, not the handle: each instance closes its own handle.
+      def self.shared(**options)
+        (@shared ||= {})[options] ||= new(**options)
+      end
+
+      def self.close_at_exit(handle)
+        at_exit { functions[:close].call(handle) }
+      end
+
       def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 0, n_gpu_layers: 0, temp: 0.7, seed: -1)
         @max_tokens = max_tokens
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed)
         raise "llama: failed to load model at #{model}" if @handle.null?
 
-        at_exit { self.class.functions[:close].call(@handle) }
+        self.class.close_at_exit(@handle)
 
         @streamed = false
         @block = nil
