@@ -35,8 +35,8 @@ extconf.rb (it requires only fileutils today).
 
 # SEE ALSO
 
-* [ ] ext/elelem/llama/extconf.rb:93 - unbounded --parallel
-* [ ] ext/elelem/llama/extconf.rb:3 - requires
+* [x] ext/elelem/llama/extconf.rb:93 - unbounded --parallel
+* [x] ext/elelem/llama/extconf.rb:3 - requires
 * [ ] bin/compile
 * [ ] Formerly elelem-sh/elelem.sh#43
 
@@ -46,8 +46,8 @@ extconf.rb (it requires only fileutils today).
 
 # Acceptance Criteria
 
-* [ ] The cmake build command passes an explicit job count
-* [ ] The default job count is the number of processors
-* [ ] `ELELEM_BUILD_JOBS` overrides it
+* [x] The cmake build command passes an explicit job count
+* [x] The default job count is the number of processors
+* [x] `ELELEM_BUILD_JOBS` overrides it
 * [ ] `gem install` of the built gem succeeds on a 4-core, 16 GB Linux
       machine with the default generator

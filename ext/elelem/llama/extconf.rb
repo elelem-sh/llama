@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "etc"
 require "fileutils"
 
 EXT_DIR   = __dir__
@@ -90,7 +91,8 @@ def configure_and_build(backend)
     "-DLLAMA_BUILD_SERVER=OFF",
     *flags
   )
-  run("cmake", "--build", BUILD_DIR, "--target", "llama", "llama-common", "--parallel")
+  run("cmake", "--build", BUILD_DIR, "--target", "llama", "llama-common", "--parallel",
+      ENV.fetch("ELELEM_BUILD_JOBS") { Etc.nprocessors.to_s })
   File.write(STAMP, backend)
 end
 
