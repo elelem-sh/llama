@@ -27,8 +27,56 @@ jobs:
       - run: bin/test
       - run: bin/lint
 
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential cmake pkg-config libffi-dev
+      - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
+        with:
+          ruby-version: "4.0"
+      - id: model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: stories260K.gguf
+          key: stories260K-v1
+      - if: steps.model.outputs.cache-hit != 'true'
+        run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+      - run: bin/platform-check "$PWD/stories260K.gguf" cpu
+
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - run: dnf install -y -q git ruby ruby-devel rubygems gcc-c++ make cmake pkgconf libffi-devel redhat-rpm-config
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - id: model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: stories260K.gguf
+          key: stories260K-v1
+      - if: steps.model.outputs.cache-hit != 'true'
+        run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+      - run: bin/platform-check "$PWD/stories260K.gguf" cpu
+
   release-please:
-    needs: test
+    needs: [test, linux, fedora]
     runs-on: ubuntu-latest
     permissions:
       contents: write

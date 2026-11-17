@@ -1,0 +1,32 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+cd "$(dirname "$0")/.."
+
+model=$1
+expected=${2:-cpu}
+
+rm -f elelem-llama-*.gem
+gem build elelem-llama.gemspec
+gem install --no-document ./elelem-llama-*.gem
+
+dir=$(ruby -e 'print Gem::Specification.find_by_name("elelem-llama").gem_dir')
+backend=$(cat "$dir/ext/elelem/llama/native/backend")
+if [ "$backend" != "$expected" ]; then
+  echo "built backend $backend, expected $expected" >&2
+  exit 1
+fi
+
+elelem-llama --help >/dev/null
+
+ELELEM_KV_CACHE_TYPE=f16 ruby -e '
+  require "elelem/llama"
+  said = []
+  Elelem::Llama::Provider.new(model: ARGV[0], n_ctx: 256, max_tokens: 8)
+    .fetch([{ role: "user", content: "hi" }]) { |event| said << event[:text] if event[:type] == "saying" }
+  reply = said.join
+  abort "no reply: #{reply.inspect}" if reply.empty? || reply.start_with?("[")
+  puts "reply: #{reply}"
+' "$model"
