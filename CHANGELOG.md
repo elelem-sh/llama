@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/elelem-sh/llama/compare/v0.4.0...v0.4.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* build llama.cpp with one job per processor, overridable with ELELEM_BUILD_JOBS, so gem install does not run out of memory ([f8b4f82](https://github.com/elelem-sh/llama/commit/f8b4f8245fa4d88464dae1b9f5b24abdae10bf44))
+
 ## [0.4.0](https://github.com/elelem-sh/llama/compare/v0.3.0...v0.4.0) (2026-11-17)
 
 
