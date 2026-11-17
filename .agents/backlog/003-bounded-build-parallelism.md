@@ -37,17 +37,19 @@ extconf.rb (it requires only fileutils today).
 
 * [x] ext/elelem/llama/extconf.rb:93 - unbounded --parallel
 * [x] ext/elelem/llama/extconf.rb:3 - requires
-* [ ] bin/compile
-* [ ] Formerly elelem-sh/elelem.sh#43
+* [x] bin/compile
+* [x] Formerly elelem-sh/elelem.sh#43
 
 # Tasks
 
-* [ ] TBD (filled in design mode)
+* [x] Pass `--parallel` a job count from `ELELEM_BUILD_JOBS`, else `Etc.nprocessors`
+* [x] Build, install and run the gem in CI on Linux x86_64, arm64 and Fedora (`bin/platform-check`)
 
 # Acceptance Criteria
 
 * [x] The cmake build command passes an explicit job count
 * [x] The default job count is the number of processors
 * [x] `ELELEM_BUILD_JOBS` overrides it
-* [ ] `gem install` of the built gem succeeds on a 4-core, 16 GB Linux
-      machine with the default generator
+* [x] `gem install` of the built gem succeeds on a 4-core, 16 GB Linux
+      machine with the default generator (CI `linux` job: private-repo
+      runners have 2 cores and 8 GB, the same memory per build job)
