@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/elelem-sh/llama/compare/v0.4.1...v0.4.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* stream only the parsed reasoning so think tags and the answer are not shown as thinking ([c3d62cb](https://github.com/elelem-sh/llama/commit/c3d62cbd30341952b9a0723be348434e48a8369a))
+
 ## [0.4.1](https://github.com/elelem-sh/llama/compare/v0.4.0...v0.4.1) (2026-11-17)
 
 
