@@ -320,8 +320,26 @@ extern "C" {
     int headroom = h->n_ctx - n_prompt;
     int budget = max_tokens > 0 ? std::min(max_tokens, headroom) : std::max(1, headroom);
 
+    common_chat_parser_params pp(cparams);
+    pp.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
+    bool parser_ready = true;
+    try {
+      if (!cparams.parser.empty()) pp.parser.load(cparams.parser);
+    } catch (const std::exception &) {
+      parser_ready = false;
+    }
+
     std::string output;
-    std::string pending;
+    std::string sent;
+    auto stream_reasoning = [&](const std::string &reasoning) {
+      if (reasoning.size() <= sent.size() || reasoning.compare(0, sent.size(), sent) != 0) return;
+      std::string chunk = reasoning.substr(sent.size());
+      chunk.resize(el_utf8_safe_len(chunk));
+      if (chunk.empty()) return;
+      on_token(userdata, chunk.c_str());
+      sent += chunk;
+    };
+    bool dirty = false;
     char piece[512];
     int n_decoded = 0;
     bool eog = false;
@@ -333,18 +351,17 @@ extern "C" {
       int np = llama_token_to_piece(vocab, id, piece, (int32_t) sizeof(piece), 0, true);
       if (np > 0) {
         output.append(piece, np);
-        if (on_token) pending.append(piece, np);
+        dirty = true;
       }
       n_decoded++;
-      if (on_token && !pending.empty()) {
+      if (on_token && parser_ready && dirty) {
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration<double, std::milli>(now - last_flush).count() >= 50.0) {
-          size_t safe_len = el_utf8_safe_len(pending);
-          if (safe_len > 0) {
-            std::string chunk = pending.substr(0, safe_len);
-            on_token(userdata, chunk.c_str());
-            pending.erase(0, safe_len);
+          try {
+            stream_reasoning(common_chat_parse(output.substr(0, el_utf8_safe_len(output)), true, pp).reasoning_content);
+          } catch (const std::exception &) {
           }
+          dirty = false;
           last_flush = now;
         }
       }
@@ -354,7 +371,6 @@ extern "C" {
       }
       if (t + 1 < budget) h->cached.push_back(id);
     }
-    if (on_token && !pending.empty()) on_token(userdata, pending.c_str());
     auto t3 = std::chrono::steady_clock::now();
 
     if (!decode_failed) guard.committed = true;
@@ -374,13 +390,11 @@ extern "C" {
     common_chat_msg parsed;
     parsed.content = output;
     try {
-      common_chat_parser_params pp(cparams);
-      pp.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-      if (!cparams.parser.empty()) pp.parser.load(cparams.parser);
-      parsed = common_chat_parse(output, false, pp);
+      if (parser_ready) parsed = common_chat_parse(output, false, pp);
     } catch (const std::exception &) {
       parsed.content = output;
     }
+    if (on_token && !sent.empty()) stream_reasoning(parsed.reasoning_content);
 
     auto known_tool = [&inputs](const std::string &name) {
       if (name.empty()) return false;

@@ -60,8 +60,10 @@ module Elelem
         # trampoline, and el_generate's reentrancy guard already prevents
         # concurrent native calls on this handle, so one instance is safe to reuse.
         @on_token = Fiddle::Closure::BlockCaller.new(Fiddle::TYPE_VOID, [V, V]) do |_userdata, piece|
-          @streamed = true
           text = Fiddle::Pointer.new(piece).to_s.force_encoding(Encoding::UTF_8).scrub
+          next if text.empty?
+
+          @streamed = true
           @block&.call(type: "thinking", text: text)
         rescue Exception => e # rubocop:disable Lint/RescueException
           Elelem.logger.warn("llama: streaming callback failed: #{e.message}")
