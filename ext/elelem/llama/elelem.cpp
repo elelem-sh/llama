@@ -277,7 +277,7 @@ extern "C" {
       llama_sampler_chain_add(smpl.get(), llama_sampler_init_dist(h->seed));
     }
 
-    const std::string &prompt = cparams.prompt;
+    const std::string prompt = cparams.prompt.str();
     int n_prompt = -llama_tokenize(vocab, prompt.c_str(), (int32_t) prompt.size(), nullptr, 0, true, true);
     if (n_prompt <= 0) return el_error(buf, "empty prompt after applying chat template");
     if (n_prompt >= h->n_ctx) {
@@ -321,13 +321,7 @@ extern "C" {
     int budget = max_tokens > 0 ? std::min(max_tokens, headroom) : std::max(1, headroom);
 
     common_chat_parser_params pp(cparams);
-    pp.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-    bool parser_ready = true;
-    try {
-      if (!cparams.parser.empty()) pp.parser.load(cparams.parser);
-    } catch (const std::exception &) {
-      parser_ready = false;
-    }
+    pp.parser = cparams.parser;
 
     std::string output;
     std::string sent;
@@ -354,11 +348,11 @@ extern "C" {
         dirty = true;
       }
       n_decoded++;
-      if (on_token && parser_ready && dirty) {
+      if (on_token && dirty) {
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration<double, std::milli>(now - last_flush).count() >= 50.0) {
           try {
-            stream_reasoning(common_chat_parse(output.substr(0, el_utf8_safe_len(output)), true, pp).reasoning_content);
+            stream_reasoning(common_chat_parse(common_chat_input(output.substr(0, el_utf8_safe_len(output))), true, pp).reasoning_content);
           } catch (const std::exception &) {
           }
           dirty = false;
@@ -390,7 +384,7 @@ extern "C" {
     common_chat_msg parsed;
     parsed.content = output;
     try {
-      if (parser_ready) parsed = common_chat_parse(output, false, pp);
+      parsed = common_chat_parse(common_chat_input(output), false, pp);
     } catch (const std::exception &) {
       parsed.content = output;
     }
