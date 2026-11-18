@@ -227,7 +227,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-26
             platform: arm64-darwin
             backend: metal
           - os: macos-15-intel
@@ -260,6 +260,7 @@ jobs:
 
   release-please:
     needs: [test, linux, fedora, macos, prebuilt-install, prebuilt-macos-install]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
