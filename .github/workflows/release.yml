@@ -75,8 +75,95 @@ jobs:
         run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu
 
+  prebuilt:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: x86_64-linux-gnu
+            cc: gcc
+            cxx: g++
+          - os: ubuntu-24.04-arm
+            platform: aarch64-linux-gnu
+            cc: clang-15
+            cxx: clang++-15
+    runs-on: ${{ matrix.os }}
+    container: ubuntu:22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      VULKAN_SDK: /opt/vulkan
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - run: >-
+          apt-get update -qq && apt-get install -y -qq build-essential ${{ matrix.cc }} cmake git ca-certificates
+          python3 pkg-config libvulkan-dev spirv-headers libyaml-0-2 libssl3 zlib1g
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
+        with:
+          ruby-version: "4.0"
+      - id: vulkan
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: /opt/vulkan
+          key: vulkan-${{ matrix.platform }}-${{ hashFiles('bin/vulkan-toolchain') }}
+      - if: steps.vulkan.outputs.cache-hit != 'true'
+        run: bin/vulkan-toolchain /opt/vulkan
+      - run: bin/portable-gem ${{ matrix.platform }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gem-${{ matrix.platform }}
+          path: elelem-llama-*.gem
+          if-no-files-found: error
+
+  prebuilt-install:
+    needs: prebuilt
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: x86_64-linux-gnu
+          - os: ubuntu-24.04-arm
+            platform: aarch64-linux-gnu
+    runs-on: ${{ matrix.os }}
+    container: fedora:44
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - run: dnf install -y -q ruby rubygems binutils tar gzip
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gem-${{ matrix.platform }}
+      - id: model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: stories260K.gguf
+          key: stories260K-v1
+      - if: steps.model.outputs.cache-hit != 'true'
+        run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+      - run: |
+          for tool in cc gcc c++ g++ clang make cmake; do
+            if command -v "$tool"; then
+              echo "$tool is installed: this job must prove that nothing compiles" >&2
+              exit 1
+            fi
+          done
+      - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+
   release-please:
-    needs: [test, linux, fedora]
+    needs: [test, linux, fedora, prebuilt-install]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -96,7 +183,8 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -106,7 +194,11 @@ jobs:
       - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
         with:
           ruby-version: "4.0"
-          bundler-cache: true
-      - uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b # v1.4.1
+      - run: gem build elelem-llama.gemspec
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          await-release: false
+          pattern: gem-*
+          merge-multiple: true
+      - run: test "$(ls elelem-llama-*.gem | wc -l)" -eq 3
+      - uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+      - run: for gem in elelem-llama-*.gem; do gem push "$gem"; done
