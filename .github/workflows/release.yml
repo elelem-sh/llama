@@ -162,8 +162,104 @@ jobs:
           done
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
 
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            backend: metal
+          - os: macos-15-intel
+            backend: cpu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
+        with:
+          ruby-version: "4.0"
+      - id: model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: stories260K.gguf
+          key: stories260K-v1
+      - if: steps.model.outputs.cache-hit != 'true'
+        run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+      - run: bin/platform-check "$PWD/stories260K.gguf" ${{ matrix.backend }}
+
+  prebuilt-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: arm64-darwin
+          - os: macos-15-intel
+            platform: x86_64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
+        with:
+          ruby-version: "4.0"
+      - run: bin/portable-gem ${{ matrix.platform }}
+      - run: bin/macos-linkage 13.3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gem-${{ matrix.platform }}
+          path: elelem-llama-*.gem
+          if-no-files-found: error
+
+  prebuilt-macos-install:
+    needs: prebuilt-macos
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: arm64-darwin
+            backend: metal
+          - os: macos-15-intel
+            platform: x86_64-darwin
+            backend: cpu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
+        with:
+          ruby-version: "4.0"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gem-${{ matrix.platform }}
+      - id: model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: stories260K.gguf
+          key: stories260K-v1
+      - if: steps.model.outputs.cache-hit != 'true'
+        run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+      - run: >-
+          bin/without-compilers bin/platform-check "$PWD/stories260K.gguf" ${{ matrix.backend }}
+          "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+
   release-please:
-    needs: [test, linux, fedora, prebuilt-install]
+    needs: [test, linux, fedora, macos, prebuilt-install, prebuilt-macos-install]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -199,6 +295,6 @@ jobs:
         with:
           pattern: gem-*
           merge-multiple: true
-      - run: test "$(ls elelem-llama-*.gem | wc -l)" -eq 3
+      - run: test "$(ls elelem-llama-*.gem | wc -l)" -eq 5
       - uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
       - run: for gem in elelem-llama-*.gem; do gem push "$gem"; done
