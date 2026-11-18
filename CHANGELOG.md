@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/elelem-sh/llama/compare/v0.5.0...v0.6.0) (2026-11-18)
+
+
+### Features
+
+* build a prebuilt gem that picks the best code for the CPU when it runs, with ELELEM_LLAMA_BACKEND=portable ([223a5af](https://github.com/elelem-sh/llama/commit/223a5af08dd80bbc49acee30a31603c2072712a8))
+* name the backend in use from the device registry and load backend modules from the gem ([f7e7e1b](https://github.com/elelem-sh/llama/commit/f7e7e1b728f46f4d854dfb50f580a2cd86f66979))
+
+
+### Bug Fixes
+
+* accept the json that ships with Ruby so installing it compiles nothing ([ec0a2dc](https://github.com/elelem-sh/llama/commit/ec0a2dce93e7e712027963cf57a188eca7a70dad))
+
 ## [0.5.0](https://github.com/elelem-sh/llama/compare/v0.4.3...v0.5.0) (2026-11-18)
 
 
