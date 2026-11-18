@@ -16,6 +16,10 @@ HOST_CPU = ["-DGGML_NATIVE=ON"].freeze
 EVERY_CPU = ["-DGGML_NATIVE=OFF", "-DGGML_BACKEND_DL=ON", "-DGGML_CPU_ALL_VARIANTS=ON", "-DGGML_OPENMP=OFF"].freeze
 DARWIN = RbConfig::CONFIG["host_os"] =~ /darwin/
 APPLE_SILICON = DARWIN && RbConfig::CONFIG["host_cpu"] =~ /arm64|aarch64/
+METAL = ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"].freeze
+NO_METAL = ["-DGGML_METAL=OFF"].freeze
+BESIDE_THE_LOADER = DARWIN ? "@loader_path" : "$ORIGIN"
+OLDEST_MACOS = "13.3"
 
 class BuildError < StandardError; end
 
@@ -57,14 +61,20 @@ def hip_architectures = ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx110
 
 def chosen_cuda_architectures = ENV.values_at("ELELEM_CUDA_ARCH").compact.map { "-DCMAKE_CUDA_ARCHITECTURES=#{it}" }
 
+def portable_gpu
+  return ["-DGGML_VULKAN=ON"] unless DARWIN
+
+  APPLE_SILICON ? METAL : NO_METAL
+end
+
 def backend_flags(backend)
   {
-    "cpu" => [*HOST_CPU, *(DARWIN ? ["-DGGML_METAL=OFF"] : [])],
+    "cpu" => [*HOST_CPU, *(DARWIN ? NO_METAL : [])],
     "vulkan" => [*HOST_CPU, "-DGGML_VULKAN=ON"],
     "cuda" => [*HOST_CPU, "-DGGML_CUDA=ON", *chosen_cuda_architectures],
     "hip" => [*HOST_CPU, "-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{hip_architectures}"],
-    "metal" => [*HOST_CPU, "-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"],
-    "portable" => [*EVERY_CPU, "-DGGML_VULKAN=ON"]
+    "metal" => [*HOST_CPU, *METAL],
+    "portable" => [*EVERY_CPU, *portable_gpu]
   }.fetch(backend) { abort "elelem: unknown backend #{backend.inspect}" }
 end
 
@@ -90,7 +100,7 @@ def configure_and_build(backend)
     "-DCMAKE_BUILD_TYPE=Release",
     "-DBUILD_SHARED_LIBS=ON",
     "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON",
-    "-DCMAKE_INSTALL_RPATH=$ORIGIN",
+    "-DCMAKE_INSTALL_RPATH=#{BESIDE_THE_LOADER}",
     "-DLLAMA_OPENSSL=OFF",
     "-DLLAMA_BUILD_COMMON=ON",
     "-DLLAMA_BUILD_APP=OFF",
@@ -110,6 +120,7 @@ unless File.exist?(File.join(VENDOR, "CMakeLists.txt"))
 end
 
 backend = detect_backend
+ENV["MACOSX_DEPLOYMENT_TARGET"] ||= OLDEST_MACOS if backend == "portable"
 
 if File.exist?(STAMP) && File.read(STAMP).strip != backend
   warn "elelem: backend changed -> wiping #{BUILD_DIR}"
@@ -125,10 +136,10 @@ def link_shim(libdir)
 
   cxx = ENV["CXX"] || "c++"
   link_flags = if DARWIN
-                 ["-Wl,-rpath,@loader_path", "-Wl,-install_name,@rpath/libelelem_llama.dylib",
+                 ["-Wl,-install_name,@rpath/libelelem_llama.dylib",
                   "-framework", "Metal", "-framework", "Foundation", "-framework", "Accelerate"]
                else
-                 ["-Wl,-rpath,$ORIGIN"]
+                 []
                end
   run(cxx, "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared", "-fPIC",
       "-I", File.join(VENDOR, "include"),
@@ -138,7 +149,7 @@ def link_shim(libdir)
       File.join(EXT_DIR, "elelem.cpp"),
       "-o", shim,
       "-L", libdir, "-lllama-common", "-lllama", "-lggml", "-lggml-base",
-      *link_flags)
+      "-Wl,-rpath,#{BESIDE_THE_LOADER}", *link_flags)
 end
 
 begin
