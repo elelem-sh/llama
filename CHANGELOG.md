@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/elelem-sh/llama/compare/v0.6.0...v0.7.0) (2026-11-18)
+
+
+### Features
+
+* build the prebuilt gem on macOS, with Metal on Apple silicon, for macOS 13.3 and libraries found beside their loader ([d7ba392](https://github.com/elelem-sh/llama/commit/d7ba392ce0ca90b4134ce38b1e230c800175eddc))
+
 ## [0.6.0](https://github.com/elelem-sh/llama/compare/v0.5.0...v0.6.0) (2026-11-18)
 
 
