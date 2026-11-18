@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.3](https://github.com/elelem-sh/llama/compare/v0.4.2...v0.4.3) (2026-11-18)
+
+
+### Bug Fixes
+
+* build llama.cpp for the host CPU under gem install ([f32ba7e](https://github.com/elelem-sh/llama/commit/f32ba7e3a5536c4c5a04914854c96aa5f4dd2bbc))
+* **deps:** bump llama.cpp to v1.0.0 ([c1c677c](https://github.com/elelem-sh/llama/commit/c1c677c14106ed4c2824b578f68a92837d770cc1))
+* let ELELEM_CUDA_ARCH choose the cuda architectures ([5f2b9ff](https://github.com/elelem-sh/llama/commit/5f2b9ff3a749d8936ee6137f197c9dfc37f7b1ab))
+
 ## [0.4.2](https://github.com/elelem-sh/llama/compare/v0.4.1...v0.4.2) (2026-11-17)
 
 
