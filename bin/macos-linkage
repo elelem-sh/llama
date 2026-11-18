@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+cd "$(dirname "$0")/.."
+
+oldest_macos=$1
+
+fail() {
+  echo "$1" >&2
+  exit 1
+}
+
+for library in ext/elelem/llama/native/*; do
+  commands=$(otool -l "$library")
+  needed=$(otool -L "$library" | tail -n +2)
+  foreign=$(echo "$needed" | grep -v -e '@rpath/' -e '^[[:space:]]*/usr/lib/' -e '^[[:space:]]*/System/Library/' || true)
+  runs_on=$(echo "$commands" | awk '$1 == "minos" { print $2; exit }')
+
+  echo "$library: macOS $runs_on"
+  echo "$needed"
+  echo "$commands" | grep -q 'path @loader_path ' || fail "$library does not look for libraries beside itself"
+  echo "$commands" | grep -q 'ORIGIN' && fail "$library has a Linux run path"
+  [ -z "$foreign" ] || fail "$library needs a library outside macOS and the gem: $foreign"
+  [ "$runs_on" = "$oldest_macos" ] || fail "$library needs macOS $runs_on, expected $oldest_macos"
+done

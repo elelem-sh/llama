@@ -16,6 +16,14 @@ if [ -z "$gem" ]; then
 fi
 gem install --no-document "$gem"
 
+if [ -n "${3:-}" ]; then
+  ruby -e '
+    spec = Gem::Specification.find_by_name("elelem-llama")
+    abort "#{spec.full_name} compiled #{spec.extensions.join(", ")}" unless spec.extensions.empty?
+    abort "RubyGems here would not pick #{spec.full_name}" unless Gem::Platform.match_gem?(spec.platform, spec.name)
+  '
+fi
+
 dir=$(ruby -e 'print Gem::Specification.find_by_name("elelem-llama").gem_dir')
 native="$dir/ext/elelem/llama/native"
 
@@ -47,6 +55,15 @@ ELELEM_KV_CACHE_TYPE=f16 ruby -e '
   reply = said.join
   abort "no reply: #{reply.inspect}" if reply.empty? || reply.start_with?("[")
   puts "reply: #{reply}"
-  loaded = File.readable?("/proc/self/maps") ? File.foreach("/proc/self/maps").filter_map { it[/\S*libggml-cpu\S*/] } : []
+  dyld = Fiddle::Handle::DEFAULT
+  images = if File.readable?("/proc/self/maps")
+    File.readlines("/proc/self/maps")
+  elsif dyld.sym_defined?("_dyld_image_count")
+    name = Fiddle::Function.new(dyld["_dyld_get_image_name"], [Fiddle::TYPE_INT], Fiddle::TYPE_VOIDP)
+    Fiddle::Function.new(dyld["_dyld_image_count"], [], Fiddle::TYPE_INT).call.times.map { name.call(it).to_s }
+  else
+    []
+  end
+  loaded = images.filter_map { it[/\S*libggml-cpu\S*/] }
   puts "cpu library: #{loaded.first}" unless loaded.empty?
 ' "$model" "$expected"
