@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+cd "$(dirname "$0")/.."
+
+platform=$1
+
+ELELEM_LLAMA_BACKEND=portable ruby ext/elelem/llama/extconf.rb
+rm -f elelem-llama-*.gem
+ELELEM_LLAMA_PLATFORM="$platform" gem build elelem-llama.gemspec

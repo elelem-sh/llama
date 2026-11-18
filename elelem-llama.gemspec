@@ -27,19 +27,24 @@ Gem::Specification.new do |spec|
     "lib/elelem/llama/model_resolver.rb",
     "lib/elelem/llama/provider.rb",
     "lib/elelem/llama/settings.rb",
-    "exe/elelem-llama",
-    "ext/elelem/llama/elelem.cpp",
-    "ext/elelem/llama/extconf.rb"
+    "exe/elelem-llama"
   ]
-  # Only what extconf.rb's cmake build (LLAMA_BUILD_COMMON=ON, tests/docs/
-  # examples/tools/server all OFF) actually needs to configure and compile.
-  # Anchored to the vendor root so this doesn't also strip required nested
-  # dirs with the same name, e.g. src/models/ (per-architecture model code).
-  vendor_exclude = %r{\Avendor/llama\.cpp/(tests|docs|models|examples|tools|\.github|gguf-py|scripts)/}
-  spec.files += Dir["vendor/llama.cpp/**/*"].select do |path|
-    File.file?(path) && path !~ vendor_exclude
+  prebuilt_for = ENV.fetch("ELELEM_LLAMA_PLATFORM", "")
+  if prebuilt_for.empty?
+    spec.files += ["ext/elelem/llama/elelem.cpp", "ext/elelem/llama/extconf.rb", "ext/elelem/llama/shared_libraries.rb"]
+    # Only what extconf.rb's cmake build (LLAMA_BUILD_COMMON=ON, tests/docs/
+    # examples/tools/server all OFF) actually needs to configure and compile.
+    # Anchored to the vendor root so this doesn't also strip required nested
+    # dirs with the same name, e.g. src/models/ (per-architecture model code).
+    vendor_exclude = %r{\Avendor/llama\.cpp/(tests|docs|models|examples|tools|\.github|gguf-py|scripts)/}
+    spec.files += Dir["vendor/llama.cpp/**/*"].select do |path|
+      File.file?(path) && path !~ vendor_exclude
+    end
+    spec.extensions = ["ext/elelem/llama/extconf.rb"]
+  else
+    spec.platform = prebuilt_for
+    spec.files += ["vendor/llama.cpp/LICENSE", *Dir["ext/elelem/llama/native/*"]]
   end
-  spec.extensions = ["ext/elelem/llama/extconf.rb"]
   spec.bindir = "exe"
   spec.executables = ["elelem-llama"]
   spec.require_paths = ["lib"]

@@ -2,6 +2,7 @@
 
 require "etc"
 require "fileutils"
+require_relative "shared_libraries"
 
 EXT_DIR   = __dir__
 GEM_ROOT  = File.expand_path("../../..", EXT_DIR)
@@ -9,7 +10,10 @@ VENDOR    = File.join(GEM_ROOT, "vendor", "llama.cpp")
 BUILD_DIR = File.join(EXT_DIR, "build")
 NATIVE    = File.join(GEM_ROOT, "ext", "elelem", "llama", "native")
 STAMP     = File.join(BUILD_DIR, ".elelem_backend") # last backend built here
-VALID_BACKENDS = %w[cpu vulkan cuda hip metal].freeze
+VALID_BACKENDS = %w[cpu vulkan cuda hip metal portable].freeze
+FALLBACK = { "vulkan" => "cpu", "cuda" => "cpu", "hip" => "cpu", "metal" => "cpu" }.freeze
+HOST_CPU = ["-DGGML_NATIVE=ON"].freeze
+EVERY_CPU = ["-DGGML_NATIVE=OFF", "-DGGML_BACKEND_DL=ON", "-DGGML_CPU_ALL_VARIANTS=ON", "-DGGML_OPENMP=OFF"].freeze
 DARWIN = RbConfig::CONFIG["host_os"] =~ /darwin/
 APPLE_SILICON = DARWIN && RbConfig::CONFIG["host_cpu"] =~ /arm64|aarch64/
 
@@ -53,13 +57,14 @@ def hip_architectures = ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx110
 
 def chosen_cuda_architectures = ENV.values_at("ELELEM_CUDA_ARCH").compact.map { "-DCMAKE_CUDA_ARCHITECTURES=#{it}" }
 
-def gpu_flags(backend)
+def backend_flags(backend)
   {
-    "cpu" => DARWIN ? ["-DGGML_METAL=OFF"] : [],
-    "vulkan" => ["-DGGML_VULKAN=ON"],
-    "cuda" => ["-DGGML_CUDA=ON", *chosen_cuda_architectures],
-    "hip" => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{hip_architectures}"],
-    "metal" => ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"]
+    "cpu" => [*HOST_CPU, *(DARWIN ? ["-DGGML_METAL=OFF"] : [])],
+    "vulkan" => [*HOST_CPU, "-DGGML_VULKAN=ON"],
+    "cuda" => [*HOST_CPU, "-DGGML_CUDA=ON", *chosen_cuda_architectures],
+    "hip" => [*HOST_CPU, "-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{hip_architectures}"],
+    "metal" => [*HOST_CPU, "-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"],
+    "portable" => [*EVERY_CPU, "-DGGML_VULKAN=ON"]
   }.fetch(backend) { abort "elelem: unknown backend #{backend.inspect}" }
 end
 
@@ -80,14 +85,12 @@ def detect_backend
 end
 
 def configure_and_build(backend)
-  flags = gpu_flags(backend)
   run(
     "cmake", "-S", VENDOR, "-B", BUILD_DIR,
     "-DCMAKE_BUILD_TYPE=Release",
     "-DBUILD_SHARED_LIBS=ON",
     "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON",
     "-DCMAKE_INSTALL_RPATH=$ORIGIN",
-    "-DGGML_NATIVE=ON",
     "-DLLAMA_OPENSSL=OFF",
     "-DLLAMA_BUILD_COMMON=ON",
     "-DLLAMA_BUILD_APP=OFF",
@@ -95,7 +98,7 @@ def configure_and_build(backend)
     "-DLLAMA_BUILD_EXAMPLES=OFF",
     "-DLLAMA_BUILD_TOOLS=OFF",
     "-DLLAMA_BUILD_SERVER=OFF",
-    *flags
+    *backend_flags(backend)
   )
   run("cmake", "--build", BUILD_DIR, "--target", "llama", "llama-common", "--parallel",
       ENV.fetch("ELELEM_BUILD_JOBS") { Etc.nprocessors.to_s })
@@ -117,9 +120,8 @@ def link_shim(libdir)
   ext = DARWIN ? "dylib" : "so"
   shim = File.join(NATIVE, "libelelem_llama.#{ext}")
 
-  FileUtils.mkdir_p(NATIVE)
-  FileUtils.rm_f(Dir.glob(File.join(NATIVE, "*.#{ext}*")))
-  FileUtils.cp(Dir.glob(File.join(libdir, "*.#{ext}*")), NATIVE)
+  FileUtils.rm_rf(NATIVE)
+  Elelem::Llama::SharedLibraries.new(libdir).install(NATIVE)
 
   cxx = ENV["CXX"] || "c++"
   link_flags = if DARWIN
@@ -144,16 +146,13 @@ begin
   configure_and_build(backend)
   link_shim(File.join(BUILD_DIR, "bin"))
 rescue BuildError => e
-  raise if backend == "cpu"
-
-  warn "elelem: #{backend} build failed (#{e.message}); falling back to CPU"
+  backend = FALLBACK.fetch(backend) { raise }
+  warn "elelem: build failed (#{e.message}); falling back to #{backend}"
   FileUtils.rm_rf(BUILD_DIR)
-  backend = "cpu"
   configure_and_build(backend)
   link_shim(File.join(BUILD_DIR, "bin"))
 end
 
-File.write(File.join(NATIVE, "backend"), backend)
 File.write(File.join(EXT_DIR, "Makefile"), <<~MAKE)
   all:
   clean:
