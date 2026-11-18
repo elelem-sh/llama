@@ -11,6 +11,7 @@ NATIVE    = File.join(GEM_ROOT, "ext", "elelem", "llama", "native")
 STAMP     = File.join(BUILD_DIR, ".elelem_backend") # last backend built here
 VALID_BACKENDS = %w[cpu vulkan cuda hip metal].freeze
 DARWIN = RbConfig::CONFIG["host_os"] =~ /darwin/
+APPLE_SILICON = DARWIN && RbConfig::CONFIG["host_cpu"] =~ /arm64|aarch64/
 
 class BuildError < StandardError; end
 
@@ -54,7 +55,7 @@ def chosen_cuda_architectures = ENV.values_at("ELELEM_CUDA_ARCH").compact.map { 
 
 def gpu_flags(backend)
   {
-    "cpu" => [],
+    "cpu" => DARWIN ? ["-DGGML_METAL=OFF"] : [],
     "vulkan" => ["-DGGML_VULKAN=ON"],
     "cuda" => ["-DGGML_CUDA=ON", *chosen_cuda_architectures],
     "hip" => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{hip_architectures}"],
@@ -69,7 +70,8 @@ def detect_backend
   end
   return forced unless forced.empty? || forced == "auto"
 
-  return "metal" if DARWIN
+  return "metal" if APPLE_SILICON
+  return "cpu" if DARWIN
   return "cuda" if which("nvcc")
   return "vulkan" if which("glslc") && vulkan_loader?
   return "hip" if hip_available?
