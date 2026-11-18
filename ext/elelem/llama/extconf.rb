@@ -48,14 +48,16 @@ def hip_available?
   which("hipcc") && !hip_gfx_target.nil?
 end
 
+def hip_architectures = ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx1100" }
+
+def chosen_cuda_architectures = ENV.values_at("ELELEM_CUDA_ARCH").compact.map { "-DCMAKE_CUDA_ARCHITECTURES=#{it}" }
+
 def gpu_flags(backend)
   {
     "cpu" => [],
     "vulkan" => ["-DGGML_VULKAN=ON"],
-    "cuda" => ["-DGGML_CUDA=ON"],
-    "hip" => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{ENV.fetch("ELELEM_HIP_ARCH") do
-      hip_gfx_target || "gfx1100"
-    end}"],
+    "cuda" => ["-DGGML_CUDA=ON", *chosen_cuda_architectures],
+    "hip" => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{hip_architectures}"],
     "metal" => ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"]
   }.fetch(backend) { abort "elelem: unknown backend #{backend.inspect}" }
 end
