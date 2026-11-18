@@ -50,7 +50,7 @@ end
 
 def gpu_flags(backend)
   {
-    "cpu" => [], # GGML_NATIVE is ON by default -> host CPU SIMD
+    "cpu" => [],
     "vulkan" => ["-DGGML_VULKAN=ON"],
     "cuda" => ["-DGGML_CUDA=ON"],
     "hip" => ["-DGGML_HIP=ON", "-DCMAKE_HIP_ARCHITECTURES=#{ENV.fetch("ELELEM_HIP_ARCH") do
@@ -83,6 +83,7 @@ def configure_and_build(backend)
     "-DBUILD_SHARED_LIBS=ON",
     "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON",
     "-DCMAKE_INSTALL_RPATH=$ORIGIN",
+    "-DGGML_NATIVE=ON",
     "-DLLAMA_OPENSSL=OFF",
     "-DLLAMA_BUILD_COMMON=ON",
     "-DLLAMA_BUILD_APP=OFF",
