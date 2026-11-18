@@ -84,12 +84,26 @@ extern "C" {
 #endif
   }
 
-  static void el_ensure_backend() {
+  static void el_ensure_backend(const char *modules = nullptr) {
     if (g_backend) return;
     el_default_env("GGML_OP_OFFLOAD_MIN_BATCH", "128");
     llama_log_set(el_log_callback, nullptr);
+    if (modules && ggml_backend_reg_count() == 0) ggml_backend_load_all_from_path(modules);
     llama_backend_init();
     g_backend = true;
+  }
+
+  void el_start(const char *modules) {
+    el_ensure_backend(modules);
+  }
+
+  const char *el_backend() {
+    el_ensure_backend();
+    for (auto type : {GGML_BACKEND_DEVICE_TYPE_GPU, GGML_BACKEND_DEVICE_TYPE_IGPU, GGML_BACKEND_DEVICE_TYPE_CPU}) {
+      ggml_backend_dev_t dev = ggml_backend_dev_by_type(type);
+      if (dev) return ggml_backend_reg_name(ggml_backend_dev_backend_reg(dev));
+    }
+    return "CPU";
   }
 
   static const uint32_t EL_MIN_CTX = 4096;

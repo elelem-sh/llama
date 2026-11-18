@@ -9,11 +9,9 @@ module Elelem
       I = Fiddle::TYPE_INT
       F = Fiddle::TYPE_FLOAT
 
-      def self.backend
-        File.read(File.join(NATIVE, "backend")).strip
-      rescue SystemCallError
-        "cpu"
-      end
+      BACKENDS = { "MTL" => "metal", "ROCm" => "hip" }.freeze
+
+      def self.backend = functions[:backend].call.to_s.then { BACKENDS.fetch(it, &:downcase) }
 
       class << self
         attr_writer :functions
@@ -22,7 +20,9 @@ module Elelem
       def self.functions
         @functions ||= begin
           lib = Fiddle.dlopen(SHIM)
+          Fiddle::Function.new(lib["el_start"], [V], Fiddle::TYPE_VOID).call(NATIVE)
           {
+            backend: Fiddle::Function.new(lib["el_backend"], [], V),
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I, Fiddle::TYPE_LONG_LONG], V),
             survey: Fiddle::Function.new(lib["el_survey"], [V, Fiddle::TYPE_LONG_LONG], V),
             settings: Fiddle::Function.new(lib["el_settings"], [V], V),

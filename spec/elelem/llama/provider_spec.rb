@@ -43,6 +43,23 @@ RSpec.describe Elelem::Llama::Provider do
     events
   end
 
+  describe ".backend" do
+    def backend_named(name)
+      described_class.functions[:backend] = -> { Fiddle::Pointer[name] }
+      described_class.backend
+    end
+
+    it "names the backend of the best device in lower case" do
+      expect(backend_named("Vulkan")).to eq("vulkan")
+      expect(backend_named("CPU")).to eq("cpu")
+    end
+
+    it "names Metal and ROCm the way ELELEM_LLAMA_BACKEND does" do
+      expect(backend_named("MTL")).to eq("metal")
+      expect(backend_named("ROCm")).to eq("hip")
+    end
+  end
+
   it "does not send the reasoning again after it was streamed" do
     result = { "reasoning" => "Greet the user.", "content" => "Hi!", "tool_calls" => [] }
 

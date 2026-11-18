@@ -7,27 +7,31 @@ cd "$(dirname "$0")/.."
 
 model=$1
 expected=${2:-cpu}
+gem=${3:-}
 
-rm -f elelem-llama-*.gem
-gem build elelem-llama.gemspec
-gem install --no-document ./elelem-llama-*.gem
+if [ -z "$gem" ]; then
+  rm -f elelem-llama-*.gem
+  gem build elelem-llama.gemspec
+  gem=$(ls ./elelem-llama-*.gem)
+fi
+gem install --no-document "$gem"
 
 dir=$(ruby -e 'print Gem::Specification.find_by_name("elelem-llama").gem_dir')
 native="$dir/ext/elelem/llama/native"
-backend=$(cat "$native/backend")
-if [ "$backend" != "$expected" ]; then
-  echo "built backend $backend, expected $expected" >&2
-  exit 1
-fi
 
 case $(uname -m) in
   x86_64) host_simd=vfmadd ;;
   aarch64 | arm64) host_simd=sdot ;;
   *) host_simd= ;;
 esac
-cpu_library=$(ls "$native"/libggml-cpu.* | head -n 1)
-if [ -n "$host_simd" ] && ! objdump -d "$cpu_library" | grep -q "$host_simd"; then
-  echo "$cpu_library has no $host_simd instructions: not built for the host CPU" >&2
+uses_host_simd() {
+  for cpu_library in "$native"/libggml-cpu*; do
+    if objdump -d "$cpu_library" | grep -q "$host_simd"; then return 0; fi
+  done
+  return 1
+}
+if [ -n "$host_simd" ] && ! uses_host_simd; then
+  echo "no CPU library in $native has $host_simd instructions" >&2
   exit 1
 fi
 
@@ -35,10 +39,14 @@ elelem-llama --help >/dev/null
 
 ELELEM_KV_CACHE_TYPE=f16 ruby -e '
   require "elelem/llama"
+  backend = Elelem::Llama::Provider.backend
+  abort "backend #{backend}, expected #{ARGV[1]}" unless backend == ARGV[1]
   said = []
   Elelem::Llama::Provider.new(model: ARGV[0], n_ctx: 256, max_tokens: 8)
     .fetch([{ role: "user", content: "hi" }]) { |event| said << event[:text] if event[:type] == "saying" }
   reply = said.join
   abort "no reply: #{reply.inspect}" if reply.empty? || reply.start_with?("[")
   puts "reply: #{reply}"
-' "$model"
+  loaded = File.readable?("/proc/self/maps") ? File.foreach("/proc/self/maps").filter_map { it[/\S*libggml-cpu\S*/] } : []
+  puts "cpu library: #{loaded.first}" unless loaded.empty?
+' "$model" "$expected"
