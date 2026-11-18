@@ -5,6 +5,7 @@ require "json"
 require "elelem"
 
 require_relative "llama/version"
+require_relative "llama/context_choice"
 require_relative "llama/host_memory"
 require_relative "llama/model_resolver"
 require_relative "llama/settings"

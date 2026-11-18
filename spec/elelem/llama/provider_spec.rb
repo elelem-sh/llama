@@ -8,14 +8,21 @@ require_relative "../../../lib/elelem/llama"
 RSpec.describe Elelem::Llama::Provider do
   let(:opened) { [] }
 
+  let(:surveys) { ["{}"] }
+
   before do
     opens = opened
-    open = ->(*args) { opens << args and Fiddle::Pointer.new(opens.size) }
-    allow(described_class).to receive_messages(functions: { open: open }, close_at_exit: nil)
+    found = surveys
+    described_class.functions = {
+      open: ->(*args) { opens << args and Fiddle::Pointer.new(opens.size) },
+      survey: ->(*) { found.first },
+      close: ->(_handle) {}
+    }
     described_class.instance_variable_set(:@shared, nil)
   end
 
   after do
+    described_class.functions = nil
     described_class.instance_variable_set(:@shared, nil)
   end
 
@@ -82,6 +89,21 @@ RSpec.describe Elelem::Llama::Provider do
     described_class.new(model: "a.gguf")
 
     expect(opened.first[1..2]).to eq([-1, 0])
+  end
+
+  it "opens with the context a dedicated GPU can hold alone when that is roomy" do
+    surveys.replace([JSON.generate(n_ctx_train: 262_144, on_gpu: 40_960, affordable: 131_072)])
+    described_class.new(model: "a.gguf")
+
+    expect(opened.first[1..2]).to eq([-1, 40_960])
+  end
+
+  it "does not survey when the context or the layers were chosen by hand" do
+    surveys.replace([JSON.generate(n_ctx_train: 262_144, on_gpu: 40_960, affordable: 131_072)])
+    described_class.new(model: "a.gguf", n_ctx: 8192)
+    described_class.new(model: "a.gguf", n_gpu_layers: 20)
+
+    expect(opened.map { it[1..2] }).to eq([[-1, 8192], [20, 0]])
   end
 
   it "opens the model with the memory budget of the host" do

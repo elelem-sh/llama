@@ -125,9 +125,18 @@ extern "C" {
     try { return std::stoi(raw); } catch (...) { return fallback; }
   }
 
+  static std::mutex el_fitting;
+
+  static llama_context_params el_context_params() {
+    llama_context_params cp = llama_context_default_params();
+    cp.type_k = el_kv_cache_type();
+    cp.type_v = el_kv_cache_type();
+    return cp;
+  }
+
   struct el_placement {
     llama_model_params mp = llama_model_default_params();
-    llama_context_params cp = llama_context_default_params();
+    llama_context_params cp = el_context_params();
     std::vector<float> split = std::vector<float>(llama_max_devices(), 0.0f);
     std::vector<llama_model_tensor_buft_override> overrides =
       std::vector<llama_model_tensor_buft_override>(llama_max_tensor_buft_overrides(), {nullptr, nullptr});
@@ -222,7 +231,8 @@ extern "C" {
     return {pool};
   }
 
-  static uint32_t el_largest_context(const char *path, const el_placement &placement, int64_t host_budget, bool pooled) {
+  static uint32_t el_largest_context(const char *path, const el_placement &placement, int64_t host_budget, bool pooled,
+      uint32_t *n_ctx_train = nullptr) {
     auto measure = [&](uint32_t n_ctx, uint32_t *trained) {
       auto demands = el_measure(path, placement, n_ctx, host_budget, trained);
       return pooled ? el_pooled(demands) : demands;
@@ -230,8 +240,10 @@ extern "C" {
 
     uint32_t trained = 0;
     auto full = measure(0, &trained);
+    if (n_ctx_train) *n_ctx_train = trained;
     bool fits = std::all_of(full.begin(), full.end(), [](const el_demand &d) { return d.fits(); });
-    if (fits || trained <= EL_MIN_CTX) return trained;
+    if (fits) return trained;
+    if (trained <= EL_MIN_CTX) return 0;
 
     auto least = measure(EL_MIN_CTX, &trained);
     int64_t n_ctx = trained;
@@ -239,10 +251,15 @@ extern "C" {
       if (full[i].fits()) continue;
       int64_t room = full[i].limit - least[i].used;
       int64_t growth = full[i].used - least[i].used;
-      if (room <= 0 || growth <= 0) return EL_MIN_CTX;
+      if (room <= 0 || growth <= 0) return 0;
       n_ctx = std::min(n_ctx, EL_MIN_CTX + (int64_t) (trained - EL_MIN_CTX) * room / growth);
     }
     return (uint32_t) std::max<int64_t>(n_ctx - n_ctx % 256, EL_MIN_CTX);
+  }
+
+  static uint32_t el_context_within(const char *path, const el_placement &placement, int64_t host_budget, bool pooled) {
+    uint32_t n_ctx = el_largest_context(path, placement, host_budget, pooled);
+    return n_ctx > 0 ? n_ctx : EL_MIN_CTX;
   }
 
   static std::vector<size_t> el_device_margins(int64_t host_budget) {
@@ -263,9 +280,8 @@ extern "C" {
     uint32_t affordable = placement.cp.n_ctx;
     if (!context_chosen) {
       el_placement on_host;
-      on_host.cp = placement.cp;
       on_host.keep_weights_on_host();
-      affordable = el_largest_context(path, on_host, host_budget, true);
+      affordable = el_context_within(path, on_host, host_budget, true);
     }
 
     auto margins = el_device_margins(host_budget);
@@ -274,12 +290,12 @@ extern "C" {
     if (status == COMMON_PARAMS_FIT_STATUS_SUCCESS) return;
 
     placement.keep_weights_on_host();
-    placement.cp.n_ctx = context_chosen ? affordable : el_largest_context(path, placement, host_budget, false);
+    placement.cp.n_ctx = context_chosen ? affordable : el_context_within(path, placement, host_budget, false);
   }
 
-  static llama_context *el_init_context(llama_model *model, llama_context_params cp, bool context_chosen) {
+  static llama_context *el_init_context(llama_model *model, llama_context_params cp) {
     llama_context *ctx = llama_init_from_model(model, cp);
-    if (ctx || context_chosen) return ctx;
+    if (ctx) return ctx;
 
     for (uint32_t size = cp.n_ctx / 2; size >= EL_MIN_CTX; size /= 2) {
       cp.n_ctx = size;
@@ -321,21 +337,17 @@ extern "C" {
   }
 
   void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed, long long memory_budget) {
-    static std::mutex opening;
-    std::lock_guard<std::mutex> lock(opening);
+    std::lock_guard<std::mutex> lock(el_fitting);
 
     el_ensure_backend();
 
     int threads = n_threads > 0 ? n_threads : common_cpu_get_num_math();
     int64_t host_budget = el_host_budget(memory_budget);
-    bool context_chosen = n_ctx > 0;
 
     auto placement = std::make_unique<el_placement>();
-    placement->cp.n_ctx = context_chosen ? (uint32_t) n_ctx : 0;
+    placement->cp.n_ctx = (uint32_t) std::max(n_ctx, 0);
     placement->cp.n_threads = threads;
     placement->cp.n_threads_batch = threads;
-    placement->cp.type_k = el_kv_cache_type();
-    placement->cp.type_v = el_kv_cache_type();
 
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
@@ -345,7 +357,7 @@ extern "C" {
       } else {
         if (n_gpu_layers == 0) placement->use_cpu_only();
         else placement->mp.n_gpu_layers = std::max(n_gpu_layers, 0);
-        if (!context_chosen) placement->cp.n_ctx = el_largest_context(path, *placement, host_budget, false);
+        if (n_ctx <= 0) placement->cp.n_ctx = el_context_within(path, *placement, host_budget, false);
       }
 
       model = llama_model_load_from_file(path, placement->mp);
@@ -353,7 +365,7 @@ extern "C" {
 
       auto tmpls = common_chat_templates_init(model, "");
 
-      ctx = el_init_context(model, placement->cp, context_chosen);
+      ctx = el_init_context(model, placement->cp);
       if (!ctx) { llama_model_free(model); return nullptr; }
 
       auto *handle = new el_handle{model, std::move(tmpls), ctx, (int) llama_n_ctx_seq(ctx), threads, temp, (uint32_t) seed};
@@ -365,6 +377,32 @@ extern "C" {
       if (model) llama_model_free(model);
       return nullptr;
     }
+  }
+
+  const char *el_survey(const char *path, long long memory_budget) {
+    static thread_local std::string buf;
+    std::lock_guard<std::mutex> lock(el_fitting);
+
+    el_ensure_backend();
+    buf = "{}";
+    if (el_best_gpu() != EL_GPU_DEDICATED) return buf.c_str();
+
+    try {
+      int64_t host_budget = el_host_budget(memory_budget);
+      el_placement on_gpu;
+      el_placement on_host;
+      on_host.keep_weights_on_host();
+
+      uint32_t trained = 0;
+      json survey = {
+        {"on_gpu", el_largest_context(path, on_gpu, host_budget, false, &trained)},
+        {"affordable", el_context_within(path, on_host, host_budget, true)}
+      };
+      survey["n_ctx_train"] = trained;
+      buf = survey.dump();
+    } catch (const std::exception &) {
+    }
+    return buf.c_str();
   }
 
   const char *el_settings(void *handle) {

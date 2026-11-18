@@ -15,11 +15,16 @@ module Elelem
         "cpu"
       end
 
+      class << self
+        attr_writer :functions
+      end
+
       def self.functions
         @functions ||= begin
           lib = Fiddle.dlopen(SHIM)
           {
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I, Fiddle::TYPE_LONG_LONG], V),
+            survey: Fiddle::Function.new(lib["el_survey"], [V, Fiddle::TYPE_LONG_LONG], V),
             settings: Fiddle::Function.new(lib["el_settings"], [V], V),
             generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I, V, V], V, need_gvl: true),
             close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID)
@@ -35,17 +40,21 @@ module Elelem
       end
 
       def self.close_at_exit(handle)
-        at_exit { functions[:close].call(handle) }
+        close = functions[:close]
+        at_exit { close.call(handle) }
       end
 
       def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 0, n_gpu_layers: -1, temp: 0.7, seed: -1,
                      memory: HostMemory.detect)
         @max_tokens = max_tokens
-        @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed, memory.budget)
+        budget = memory.budget
+        choice = survey(model, budget) if n_ctx.zero? && n_gpu_layers.negative?
+        n_ctx = choice.n_ctx if choice
+        @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed, budget)
         raise "llama: failed to load model at #{model}" if @handle.null?
 
         self.class.close_at_exit(@handle)
-        Elelem.logger.debug { "llama: #{settings}" }
+        Elelem.logger.debug { "llama: #{[settings, choice].compact.join("; ")}" }
 
         @streamed = false
         @block = nil
@@ -116,6 +125,11 @@ module Elelem
       end
 
       private
+
+      def survey(model, budget)
+        found = JSON.parse(self.class.functions[:survey].call(model, budget).to_s, symbolize_names: true)
+        ContextChoice.new(**found) unless found.empty?
+      end
 
       def parse(raw)
         JSON.parse(raw.to_s)
