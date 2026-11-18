@@ -13,9 +13,21 @@ gem build elelem-llama.gemspec
 gem install --no-document ./elelem-llama-*.gem
 
 dir=$(ruby -e 'print Gem::Specification.find_by_name("elelem-llama").gem_dir')
-backend=$(cat "$dir/ext/elelem/llama/native/backend")
+native="$dir/ext/elelem/llama/native"
+backend=$(cat "$native/backend")
 if [ "$backend" != "$expected" ]; then
   echo "built backend $backend, expected $expected" >&2
+  exit 1
+fi
+
+case $(uname -m) in
+  x86_64) host_simd=vfmadd ;;
+  aarch64 | arm64) host_simd=sdot ;;
+  *) host_simd= ;;
+esac
+cpu_library=$(ls "$native"/libggml-cpu.* | head -n 1)
+if [ -n "$host_simd" ] && ! objdump -d "$cpu_library" | grep -q "$host_simd"; then
+  echo "$cpu_library has no $host_simd instructions: not built for the host CPU" >&2
   exit 1
 fi
 
