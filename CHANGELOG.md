@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/elelem-sh/llama/compare/v0.4.3...v0.5.0) (2026-11-18)
+
+
+### Features
+
+* fit the GPU layers and the largest context to the memory of the machine ([f10cd42](https://github.com/elelem-sh/llama/commit/f10cd42ee018d3d24f87d1c4196da773e89cc243))
+* prefer the whole model on a dedicated GPU while a context of 32768 tokens still fits there ([7f9a4e8](https://github.com/elelem-sh/llama/commit/7f9a4e8f6998e3848c6f7549d4a4bccd623ea21b))
+* read the memory the host can spare on Linux and macOS, control group limits included ([02bccaa](https://github.com/elelem-sh/llama/commit/02bccaa371ee9da491858582a06874ce45592a94))
+* set the thread count with ELELEM_GGUF_THREADS ([435acf7](https://github.com/elelem-sh/llama/commit/435acf7769535b99f0f4649fd6f821a902ddf2f3))
+* survey the dedicated GPU before loading and inject the native functions in specs instead of stubbing them ([fb7ea21](https://github.com/elelem-sh/llama/commit/fb7ea21980d753d7f085b523acc70b738c8bb506))
+
+
+### Bug Fixes
+
+* build the cpu backend on Intel Macs, where Metal generates garbage ([c132ab5](https://github.com/elelem-sh/llama/commit/c132ab587234b5332416dfa6951ae7ab7b77f14d))
+
 ## [0.4.3](https://github.com/elelem-sh/llama/compare/v0.4.2...v0.4.3) (2026-11-18)
 
 
