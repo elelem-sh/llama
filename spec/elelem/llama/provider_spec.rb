@@ -13,12 +13,10 @@ RSpec.describe Elelem::Llama::Provider do
     open = ->(*args) { opens << args and Fiddle::Pointer.new(opens.size) }
     allow(described_class).to receive_messages(functions: { open: open }, close_at_exit: nil)
     described_class.instance_variable_set(:@shared, nil)
-    described_class.instance_variable_set(:@gpu_layers, nil)
   end
 
   after do
     described_class.instance_variable_set(:@shared, nil)
-    described_class.instance_variable_set(:@gpu_layers, nil)
   end
 
   def generating(result, pieces: [])
@@ -80,27 +78,30 @@ RSpec.describe Elelem::Llama::Provider do
     expect(opened.map(&:first)).to eq(["a.gguf", "b.gguf"])
   end
 
-  it "decides the GPU layers once per model, so less free memory later does not load a copy" do
-    answers = %w[999 0]
-    first = described_class.gpu_layers_for("/m/a.gguf") { answers.shift }
-    second = described_class.gpu_layers_for("/m/a.gguf") { answers.shift }
+  it "lets the shim choose the GPU layers and the context unless told otherwise" do
+    described_class.new(model: "a.gguf")
 
-    expect([first, second]).to eq(%w[999 999])
+    expect(opened.first[1..2]).to eq([-1, 0])
   end
 
-  it "builds -p llama once on a GPU machine whose free memory drops after the first load" do
+  it "opens the model with the memory budget of the host" do
+    described_class.new(model: "a.gguf", memory: Elelem::Llama::HostMemory::Linux.new(read: lambda { |path|
+      path == "/proc/meminfo" ? "MemAvailable:   16777216 kB\n" : raise(Errno::ENOENT)
+    }))
+
+    expect(opened.first.last).to eq(14 * (1024**3))
+  end
+
+  it "builds -p llama once for the same model" do
     Dir.mktmpdir do |dir|
       model = File.join(dir, "m.gguf")
       File.write(model, "x" * 100)
-      free = [1000, 100]
-      allow(described_class).to receive_messages(backend: "cuda")
-      allow(described_class).to receive(:gpu_free_memory) { free.shift }
 
       first = Elelem::Config.build_provider("llama", model: model)
       second = Elelem::Config.build_provider("llama", model: model)
 
       expect(second).to be(first)
-      expect(opened.map { |args| args[1] }).to eq([999])
+      expect(opened.size).to eq(1)
     end
   end
 end

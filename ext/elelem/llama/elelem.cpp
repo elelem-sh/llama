@@ -1,6 +1,7 @@
 #include "llama.h"
 #include "chat.h"
 #include "common.h"
+#include "fit.h"
 #include "ggml-backend.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -9,12 +10,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
 using json = nlohmann::ordered_json;
 
 extern "C" {
+  struct el_placement;
+
   struct el_handle {
     llama_model *model;
     common_chat_templates_ptr tmpls;
@@ -26,6 +30,8 @@ extern "C" {
     bool dead = false;
     bool in_generate = false;
     std::vector<llama_token> cached;
+    std::string settings;
+    std::unique_ptr<el_placement> placement;
   };
 
   typedef void (*el_token_cb)(void *userdata, const char *piece);
@@ -69,15 +75,25 @@ extern "C" {
     fputs(text, stderr);
   }
 
+  static void el_default_env(const char *name, const char *value) {
+    if (std::getenv(name)) return;
+#ifdef _WIN32
+    _putenv_s(name, value);
+#else
+    setenv(name, value, 0);
+#endif
+  }
+
   static void el_ensure_backend() {
     if (g_backend) return;
+    el_default_env("GGML_OP_OFFLOAD_MIN_BATCH", "128");
     llama_log_set(el_log_callback, nullptr);
     llama_backend_init();
     g_backend = true;
   }
 
-  static const int EL_MIN_CTX = 4096;
-  static const int EL_FALLBACK_CTX = 65536;
+  static const uint32_t EL_MIN_CTX = 4096;
+  static const int64_t EL_DEVICE_MARGIN = 1024LL * 1024 * 1024;
 
   // Quantized K/V cache trades a little quality for a lot less memory
   // bandwidth; llama.cpp auto-enables flash_attn (already our default: AUTO)
@@ -109,21 +125,163 @@ extern "C" {
     try { return std::stoi(raw); } catch (...) { return fallback; }
   }
 
-  static llama_context *el_init_context(llama_model *model, int n_ctx, int n_threads) {
-    int32_t trained_max = llama_model_n_ctx_train(model);
-    uint32_t requested = n_ctx > 0 ? (uint32_t) n_ctx
-      : trained_max > 0 ? std::min((uint32_t) trained_max, (uint32_t) EL_FALLBACK_CTX)
-      : (uint32_t) EL_FALLBACK_CTX;
+  struct el_placement {
+    llama_model_params mp = llama_model_default_params();
     llama_context_params cp = llama_context_default_params();
-    cp.n_ctx = requested;
-    cp.n_threads = n_threads;
-    cp.n_threads_batch = n_threads;
-    cp.type_k = el_kv_cache_type();
-    cp.type_v = el_kv_cache_type();
-    llama_context *ctx = llama_init_from_model(model, cp);
-    if (ctx) return ctx;
+    std::vector<float> split = std::vector<float>(llama_max_devices(), 0.0f);
+    std::vector<llama_model_tensor_buft_override> overrides =
+      std::vector<llama_model_tensor_buft_override>(llama_max_tensor_buft_overrides(), {nullptr, nullptr});
+    ggml_backend_dev_t no_devices[1] = {nullptr};
 
-    for (uint32_t size = requested / 2; size >= EL_MIN_CTX; size /= 2) {
+    el_placement() = default;
+    el_placement(const el_placement &) = delete;
+    el_placement &operator=(const el_placement &) = delete;
+
+    void use_cpu_only() {
+      mp.n_gpu_layers = 0;
+      mp.devices = no_devices;
+    }
+
+    void keep_weights_on_host() {
+      mp.n_gpu_layers = 0;
+      mp.tensor_split = nullptr;
+      mp.tensor_buft_overrides = nullptr;
+    }
+
+    int overflowing_layers() const {
+      if (!mp.tensor_buft_overrides) return 0;
+      int n = 0;
+      while (mp.tensor_buft_overrides[n].pattern) n++;
+      return n;
+    }
+  };
+
+  struct el_demand {
+    int64_t used;
+    int64_t limit;
+    bool fits() const { return used <= limit; }
+  };
+
+  enum el_gpu { EL_GPU_NONE, EL_GPU_INTEGRATED, EL_GPU_DEDICATED };
+
+  static el_gpu el_best_gpu() {
+    el_gpu best = EL_GPU_NONE;
+    for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+      switch (ggml_backend_dev_type(ggml_backend_dev_get(i))) {
+        case GGML_BACKEND_DEVICE_TYPE_GPU: return EL_GPU_DEDICATED;
+        case GGML_BACKEND_DEVICE_TYPE_IGPU: best = EL_GPU_INTEGRATED; break;
+        default: break;
+      }
+    }
+    return best;
+  }
+
+  static bool el_shares_host_memory(ggml_backend_dev_t dev) {
+#if defined(__APPLE__) && defined(__aarch64__)
+    (void) dev;
+    return true;
+#else
+    return ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_IGPU;
+#endif
+  }
+
+  static int64_t el_host_budget(long long requested) {
+    if (requested >= 0) return requested;
+    size_t free_mem = 0, total_mem = 0;
+    ggml_backend_dev_memory(ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU), &free_mem, &total_mem);
+    return (int64_t) total_mem / 2;
+  }
+
+  static int64_t el_device_room(ggml_backend_dev_t dev) {
+    size_t free_mem = 0, total_mem = 0;
+    ggml_backend_dev_memory(dev, &free_mem, &total_mem);
+    return (int64_t) free_mem - EL_DEVICE_MARGIN;
+  }
+
+  static std::vector<el_demand> el_measure(const char *path, const el_placement &placement, uint32_t n_ctx,
+      int64_t host_budget, uint32_t *n_ctx_train) {
+    llama_context_params cp = placement.cp;
+    cp.n_ctx = n_ctx;
+    std::vector<el_demand> demands{{0, host_budget}};
+    for (const auto &row : common_fit_measure({path}, &placement.mp, &cp, n_ctx_train, nullptr, GGML_LOG_LEVEL_ERROR)) {
+      int64_t used = (int64_t) (row.model + row.context + row.compute);
+      bool dedicated = row.kind == common_memory_breakdown_row::DEVICE
+        && !el_shares_host_memory(ggml_backend_dev_by_name(row.name.c_str()));
+      if (dedicated) demands.push_back({used, row.free - EL_DEVICE_MARGIN});
+      else demands[0].used += used;
+    }
+    return demands;
+  }
+
+  static std::vector<el_demand> el_pooled(const std::vector<el_demand> &demands) {
+    el_demand pool{0, 0};
+    for (const auto &d : demands) {
+      pool.used += d.used;
+      pool.limit += std::max<int64_t>(d.limit, 0);
+    }
+    return {pool};
+  }
+
+  static uint32_t el_largest_context(const char *path, const el_placement &placement, int64_t host_budget, bool pooled) {
+    auto measure = [&](uint32_t n_ctx, uint32_t *trained) {
+      auto demands = el_measure(path, placement, n_ctx, host_budget, trained);
+      return pooled ? el_pooled(demands) : demands;
+    };
+
+    uint32_t trained = 0;
+    auto full = measure(0, &trained);
+    bool fits = std::all_of(full.begin(), full.end(), [](const el_demand &d) { return d.fits(); });
+    if (fits || trained <= EL_MIN_CTX) return trained;
+
+    auto least = measure(EL_MIN_CTX, &trained);
+    int64_t n_ctx = trained;
+    for (size_t i = 0; i < full.size(); i++) {
+      if (full[i].fits()) continue;
+      int64_t room = full[i].limit - least[i].used;
+      int64_t growth = full[i].used - least[i].used;
+      if (room <= 0 || growth <= 0) return EL_MIN_CTX;
+      n_ctx = std::min(n_ctx, EL_MIN_CTX + (int64_t) (trained - EL_MIN_CTX) * room / growth);
+    }
+    return (uint32_t) std::max<int64_t>(n_ctx - n_ctx % 256, EL_MIN_CTX);
+  }
+
+  static std::vector<size_t> el_device_margins(int64_t host_budget) {
+    std::vector<size_t> margins(llama_max_devices(), (size_t) EL_DEVICE_MARGIN);
+    size_t slot = 0;
+    for (size_t i = 0; i < ggml_backend_dev_count() && slot < margins.size(); i++) {
+      ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+      if (ggml_backend_dev_type(dev) != GGML_BACKEND_DEVICE_TYPE_GPU) continue;
+      int64_t room = el_device_room(dev);
+      if (el_shares_host_memory(dev) && room > host_budget) margins[slot] += (size_t) (room - host_budget);
+      slot++;
+    }
+    return margins;
+  }
+
+  static void el_fit_to_devices(const char *path, el_placement &placement, int64_t host_budget) {
+    bool context_chosen = placement.cp.n_ctx > 0;
+    uint32_t affordable = placement.cp.n_ctx;
+    if (!context_chosen) {
+      el_placement on_host;
+      on_host.cp = placement.cp;
+      on_host.keep_weights_on_host();
+      affordable = el_largest_context(path, on_host, host_budget, true);
+    }
+
+    auto margins = el_device_margins(host_budget);
+    auto status = common_fit_params({path}, &placement.mp, &placement.cp, placement.split.data(),
+        placement.overrides.data(), margins.data(), affordable, nullptr, GGML_LOG_LEVEL_ERROR);
+    if (status == COMMON_PARAMS_FIT_STATUS_SUCCESS) return;
+
+    placement.keep_weights_on_host();
+    placement.cp.n_ctx = context_chosen ? affordable : el_largest_context(path, placement, host_budget, false);
+  }
+
+  static llama_context *el_init_context(llama_model *model, llama_context_params cp, bool context_chosen) {
+    llama_context *ctx = llama_init_from_model(model, cp);
+    if (ctx || context_chosen) return ctx;
+
+    for (uint32_t size = cp.n_ctx / 2; size >= EL_MIN_CTX; size /= 2) {
       cp.n_ctx = size;
       ctx = llama_init_from_model(model, cp);
       if (ctx) return ctx;
@@ -131,37 +289,86 @@ extern "C" {
     return nullptr;
   }
 
-  long el_gpu_free_memory() {
-    el_ensure_backend();
-    ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
-    if (!dev) dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_IGPU);
-    if (!dev) return -1;
-    size_t free_mem = 0, total_mem = 0;
-    ggml_backend_dev_memory(dev, &free_mem, &total_mem);
-    return (long) free_mem;
+  static std::string el_describe_settings(const el_placement &placement, llama_model *model, llama_context *ctx,
+      int threads, int64_t host_budget) {
+    int layers = llama_model_n_layer(model) + 1;
+    int wanted = placement.mp.n_gpu_layers < 0 ? layers : std::min(placement.mp.n_gpu_layers, layers);
+
+    json devices = json::array();
+    int64_t host = 0;
+    for (const auto &row : common_memory_breakdown_rows(ctx)) {
+      int64_t bytes = (int64_t) (row.model + row.context + row.compute);
+      if (row.kind == common_memory_breakdown_row::DEVICE) {
+        devices.push_back({{"name", row.name}, {"description", row.description}, {"bytes", bytes}});
+      } else {
+        host += bytes;
+      }
+    }
+
+    json settings = {
+      {"n_ctx", llama_n_ctx_seq(ctx)},
+      {"n_ctx_train", llama_model_n_ctx_train(model)},
+      {"kv_cache", ggml_type_name(placement.cp.type_k)},
+      {"threads", threads},
+      {"layers", layers},
+      {"gpu_layers", devices.empty() ? 0 : wanted},
+      {"overflowing_layers", placement.overflowing_layers()},
+      {"devices", devices},
+      {"host_bytes", host},
+      {"host_budget", host_budget}
+    };
+    return settings.dump();
   }
 
-  void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed) {
+  void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed, long long memory_budget) {
+    static std::mutex opening;
+    std::lock_guard<std::mutex> lock(opening);
+
     el_ensure_backend();
 
-    llama_model_params mp = llama_model_default_params();
-    mp.n_gpu_layers = n_gpu_layers;
-    llama_model *model = llama_model_load_from_file(path, mp);
-    if (!model) return nullptr;
-
     int threads = n_threads > 0 ? n_threads : common_cpu_get_num_math();
+    int64_t host_budget = el_host_budget(memory_budget);
+    bool context_chosen = n_ctx > 0;
 
+    auto placement = std::make_unique<el_placement>();
+    placement->cp.n_ctx = context_chosen ? (uint32_t) n_ctx : 0;
+    placement->cp.n_threads = threads;
+    placement->cp.n_threads_batch = threads;
+    placement->cp.type_k = el_kv_cache_type();
+    placement->cp.type_v = el_kv_cache_type();
+
+    llama_model *model = nullptr;
+    llama_context *ctx = nullptr;
     try {
+      if (n_gpu_layers < 0 && el_best_gpu() == EL_GPU_DEDICATED) {
+        el_fit_to_devices(path, *placement, host_budget);
+      } else {
+        if (n_gpu_layers == 0) placement->use_cpu_only();
+        else placement->mp.n_gpu_layers = std::max(n_gpu_layers, 0);
+        if (!context_chosen) placement->cp.n_ctx = el_largest_context(path, *placement, host_budget, false);
+      }
+
+      model = llama_model_load_from_file(path, placement->mp);
+      if (!model) return nullptr;
+
       auto tmpls = common_chat_templates_init(model, "");
 
-      llama_context *ctx = el_init_context(model, n_ctx, threads);
+      ctx = el_init_context(model, placement->cp, context_chosen);
       if (!ctx) { llama_model_free(model); return nullptr; }
 
-      return new el_handle{model, std::move(tmpls), ctx, (int) llama_n_ctx_seq(ctx), threads, temp, (uint32_t) seed};
+      auto *handle = new el_handle{model, std::move(tmpls), ctx, (int) llama_n_ctx_seq(ctx), threads, temp, (uint32_t) seed};
+      handle->settings = el_describe_settings(*placement, model, ctx, threads, host_budget);
+      handle->placement = std::move(placement);
+      return handle;
     } catch (const std::exception &) {
-      llama_model_free(model);
+      if (ctx) llama_free(ctx);
+      if (model) llama_model_free(model);
       return nullptr;
     }
+  }
+
+  const char *el_settings(void *handle) {
+    return handle ? ((el_handle *) handle)->settings.c_str() : "{}";
   }
 
   static std::string as_json_string(const json &v) {
