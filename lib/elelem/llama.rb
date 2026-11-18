@@ -17,7 +17,7 @@ Elelem.configure do |config|
     Elelem::Llama::Provider.shared(
       model: model_path,
       n_ctx: Integer(ENV.fetch("ELELEM_GGUF_N_CTX", "0")),
-      n_threads: 0,
+      n_threads: Integer(ENV.fetch("ELELEM_GGUF_THREADS", "0")),
       n_gpu_layers: Integer(ENV.fetch("ELELEM_GGUF_N_GPU_LAYERS", "-1")),
       max_tokens: Integer(ENV.fetch("ELELEM_GGUF_MAX_TOKENS", "0")),
       temp: Float(ENV.fetch("ELELEM_GGUF_TEMP", "0.7")),
