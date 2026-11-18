@@ -8,7 +8,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -259,7 +259,7 @@ jobs:
           "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
 
   release-please:
-    needs: [test, linux, fedora, macos, prebuilt-install, prebuilt-macos-install]
+    needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -268,6 +268,7 @@ jobs:
       pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -276,14 +277,18 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   publish:
-    needs: release-please
+    needs: [release-please, linux, fedora, macos, prebuilt-install, prebuilt-macos-install]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    environment: rubygems
     permissions:
       contents: read
       actions: read
       id-token: write
     steps:
+      - run: test "$RELEASED" = "$GITHUB_SHA"
+        env:
+          RELEASED: ${{ needs.release-please.outputs.sha }}
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
