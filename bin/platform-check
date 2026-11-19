@@ -27,21 +27,10 @@ fi
 dir=$(ruby -e 'print Gem::Specification.find_by_name("elelem-llama").gem_dir')
 native="$dir/ext/elelem/llama/native"
 
-case $(uname -m) in
-  x86_64) host_simd=vfmadd ;;
-  aarch64 | arm64) host_simd=sdot ;;
-  *) host_simd= ;;
+case $(uname -s) in
+  MINGW*) ;;
+  *) bin/cpu-simd "$native" ;;
 esac
-uses_host_simd() {
-  for cpu_library in "$native"/libggml-cpu*; do
-    if objdump -d "$cpu_library" | grep -q "$host_simd"; then return 0; fi
-  done
-  return 1
-}
-if [ -n "$host_simd" ] && ! uses_host_simd; then
-  echo "no CPU library in $native has $host_simd instructions" >&2
-  exit 1
-fi
 
 elelem-llama --help >/dev/null
 

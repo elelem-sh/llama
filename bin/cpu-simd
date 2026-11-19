@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+native=$1
+
+case $(uname -m) in
+  x86_64) host_simd=vfmadd ;;
+  aarch64 | arm64) host_simd=sdot ;;
+  *) exit 0 ;;
+esac
+
+for cpu_library in "$native"/*ggml-cpu*; do
+  if objdump -d "$cpu_library" | grep -q "$host_simd"; then exit 0; fi
+done
+
+echo "no CPU library in $native has $host_simd instructions" >&2
+exit 1
