@@ -8,7 +8,7 @@ RSpec.describe Elelem::Llama::Shim do
   let(:dlopen) { ->(library) { opened << library and "handle of #{library}" } }
   let(:load_library) { ->(path) { loaded << path } }
 
-  def shim_on(host_os) = described_class.new(dir: "/gem/native", host_os:)
+  def shim_on(system) = described_class.new(dir: "/gem/native", host: Elelem::Llama::Host.new(system:))
 
   it "is a shared object on Linux" do
     expect(shim_on("linux").path).to eq("/gem/native/libelelem_llama.so")

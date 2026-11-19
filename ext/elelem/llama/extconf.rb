@@ -15,15 +15,16 @@ VALID_BACKENDS = %w[cpu vulkan cuda hip metal portable].freeze
 FALLBACK = { "vulkan" => "cpu", "cuda" => "cpu", "hip" => "cpu", "metal" => "cpu" }.freeze
 HOST_CPU = ["-DGGML_NATIVE=ON"].freeze
 EVERY_CPU = ["-DGGML_NATIVE=OFF", "-DGGML_BACKEND_DL=ON", "-DGGML_CPU_ALL_VARIANTS=ON", "-DGGML_OPENMP=OFF"].freeze
-DARWIN = RbConfig::CONFIG["host_os"] =~ /darwin/
-WINDOWS = RbConfig::CONFIG["host_os"] =~ /mingw|mswin/
-APPLE_SILICON = DARWIN && RbConfig::CONFIG["host_cpu"] =~ /arm64|aarch64/
+HOST = Elelem::Llama::Host.new
+DARWIN = HOST.darwin?
+WINDOWS = HOST.windows?
+APPLE_SILICON = HOST.apple_silicon?
 METAL = ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"].freeze
 NO_METAL = ["-DGGML_METAL=OFF"].freeze
 BESIDE_THE_LOADER = DARWIN ? "@loader_path" : "$ORIGIN"
 OLDEST_MACOS = "13.3"
 LLAMA_LIBRARIES = %w[llama-common llama ggml ggml-base].freeze
-LLAMA_DLLS = %w[libllama-common.dll libllama.dll ggml.dll ggml-base.dll].freeze
+LLAMA_DLLS = Elelem::Llama::Shim::LOADED_FIRST_ON_WINDOWS.reverse.freeze
 APPLE_FRAMEWORKS = %w[Metal Foundation Accelerate].flat_map { ["-framework", it] }.freeze
 STATIC_RUNTIME = ["-static", "-s", "-Wl,--exclude-libs,libgcc_eh.a:libwinpthread.a:libpthread.a"].freeze
 STATIC_RUNTIME_IN_EVERY_DLL = %w[SHARED MODULE].map { "-DCMAKE_#{it}_LINKER_FLAGS=#{STATIC_RUNTIME.join(" ")}" }.freeze
@@ -136,12 +137,12 @@ if File.exist?(STAMP) && File.read(STAMP).strip != backend
   FileUtils.rm_rf(BUILD_DIR)
 end
 
-def beside_the_loader(libdir)
+def on_unix(libdir)
   ["-fPIC", "-L", libdir, *LLAMA_LIBRARIES.map { "-l#{it}" }, "-Wl,-rpath,#{BESIDE_THE_LOADER}"]
 end
 
 def on_macos(libdir)
-  [*beside_the_loader(libdir), "-Wl,-install_name,@rpath/libelelem_llama.dylib", *APPLE_FRAMEWORKS]
+  [*on_unix(libdir), "-Wl,-install_name,@rpath/libelelem_llama.dylib", *APPLE_FRAMEWORKS]
 end
 
 def on_windows(libdir) = [*LLAMA_DLLS.map { File.join(libdir, it) }, *STATIC_RUNTIME]
@@ -150,7 +151,7 @@ def link_flags(libdir)
   return on_windows(libdir) if WINDOWS
   return on_macos(libdir) if DARWIN
 
-  beside_the_loader(libdir)
+  on_unix(libdir)
 end
 
 def link_shim(libdir)

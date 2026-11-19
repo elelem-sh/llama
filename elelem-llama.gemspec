@@ -23,6 +23,7 @@ Gem::Specification.new do |spec|
     "lib/elelem/llama.rb",
     "lib/elelem/llama/version.rb",
     "lib/elelem/llama/context_choice.rb",
+    "lib/elelem/llama/host.rb",
     "lib/elelem/llama/host_memory.rb",
     "lib/elelem/llama/load_library.rb",
     "lib/elelem/llama/model_resolver.rb",
