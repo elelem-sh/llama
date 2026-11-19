@@ -1,0 +1,16 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "elelem/llama"
+require "tmpdir"
+
+provider = Elelem::Llama::Provider
+
+Dir.mktmpdir do |without_backends|
+  Dir.chdir(provider::NATIVE) do
+    provider.start(provider::SHIM.open, modules: without_backends)
+    abort "the shim started with no backend in #{without_backends}: it took one from somewhere else"
+  rescue RuntimeError => e
+    puts "refused beside the backends of the gem: #{e.message}"
+  end
+end

@@ -17,10 +17,15 @@ module Elelem
         attr_writer :functions
       end
 
+      def self.start(lib, modules: NATIVE)
+        failure = Fiddle::Function.new(lib["el_start"], [V], V).call(modules.encode(Encoding::UTF_8))
+        raise "llama: #{failure}" unless failure.null?
+      end
+
       def self.functions
         @functions ||= begin
           lib = SHIM.open
-          Fiddle::Function.new(lib["el_start"], [V], Fiddle::TYPE_VOID).call(NATIVE)
+          start(lib)
           {
             backend: Fiddle::Function.new(lib["el_backend"], [], V),
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I, Fiddle::TYPE_LONG_LONG], V),

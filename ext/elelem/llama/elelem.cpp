@@ -84,21 +84,26 @@ extern "C" {
 #endif
   }
 
-  static void el_ensure_backend(const char *modules = nullptr) {
-    if (g_backend) return;
+  static bool el_ensure_backend(const char *modules = nullptr) {
+    if (g_backend) return true;
     el_default_env("GGML_OP_OFFLOAD_MIN_BATCH", "128");
     llama_log_set(el_log_callback, nullptr);
     if (modules && ggml_backend_reg_count() == 0) ggml_backend_load_all_from_path(modules);
+    if (ggml_backend_reg_count() == 0) return false;
     llama_backend_init();
     g_backend = true;
+    return true;
   }
 
-  void el_start(const char *modules) {
-    el_ensure_backend(modules);
+  const char *el_start(const char *modules) {
+    static std::string error;
+    if (el_ensure_backend(modules)) return nullptr;
+    error = std::string("no CPU backend loaded from ") + (modules ? modules : "the shim");
+    return error.c_str();
   }
 
   const char *el_backend() {
-    el_ensure_backend();
+    if (!el_ensure_backend()) return "none";
     for (auto type : {GGML_BACKEND_DEVICE_TYPE_GPU, GGML_BACKEND_DEVICE_TYPE_IGPU, GGML_BACKEND_DEVICE_TYPE_CPU}) {
       ggml_backend_dev_t dev = ggml_backend_dev_by_type(type);
       if (dev) return ggml_backend_reg_name(ggml_backend_dev_backend_reg(dev));
@@ -353,7 +358,7 @@ extern "C" {
   void *el_open(const char *path, int n_gpu_layers, int n_ctx, int n_threads, float temp, int seed, long long memory_budget) {
     std::lock_guard<std::mutex> lock(el_fitting);
 
-    el_ensure_backend();
+    if (!el_ensure_backend()) return nullptr;
 
     int threads = n_threads > 0 ? n_threads : common_cpu_get_num_math();
     int64_t host_budget = el_host_budget(memory_budget);
@@ -397,9 +402,8 @@ extern "C" {
     static thread_local std::string buf;
     std::lock_guard<std::mutex> lock(el_fitting);
 
-    el_ensure_backend();
     buf = "{}";
-    if (el_best_gpu() != EL_GPU_DEDICATED) return buf.c_str();
+    if (!el_ensure_backend() || el_best_gpu() != EL_GPU_DEDICATED) return buf.c_str();
 
     try {
       int64_t host_budget = el_host_budget(memory_budget);

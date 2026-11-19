@@ -43,6 +43,24 @@ RSpec.describe Elelem::Llama::Provider do
     events
   end
 
+  describe ".start" do
+    def shim_answering(answer)
+      started = Fiddle::Closure::BlockCaller.new(Fiddle::TYPE_VOIDP, [Fiddle::TYPE_VOIDP]) { |_modules| answer }
+      { "el_start" => started }
+    end
+
+    it "starts when the shim loaded a backend from the gem" do
+      expect { described_class.start(shim_answering(Fiddle::NULL), modules: "/gem/native") }.not_to raise_error
+    end
+
+    it "fails with what the shim reports instead of looking for a backend elsewhere" do
+      refusal = Fiddle::Pointer["no CPU backend loaded from /gem/native"]
+
+      expect { described_class.start(shim_answering(refusal), modules: "/gem/native") }
+        .to raise_error(RuntimeError, "llama: no CPU backend loaded from /gem/native")
+    end
+  end
+
   describe ".backend" do
     def backend_named(name)
       described_class.functions[:backend] = -> { Fiddle::Pointer[name] }

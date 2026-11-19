@@ -22,6 +22,7 @@ if [ -n "${3:-}" ]; then
     abort "#{spec.full_name} compiled #{spec.extensions.join(", ")}" unless spec.extensions.empty?
     abort "RubyGems here would not pick #{spec.full_name}" unless Gem::Platform.match_gem?(spec.platform, spec.name)
   '
+  ruby bin/backend-from-the-gem-only
 fi
 
 dir=$(ruby -e 'print Gem::Specification.find_by_name("elelem-llama").gem_dir')
