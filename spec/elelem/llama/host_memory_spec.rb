@@ -9,9 +9,12 @@ RSpec.describe Elelem::Llama::HostMemory do
     ->(path) { files.fetch(path) { raise Errno::ENOENT, path } }
   end
 
+  def detected_on(system) = described_class.detect(Elelem::Llama::Host.new(system:))
+
   it "picks the reader for the operating system" do
-    expect([described_class.detect("linux-gnu"), described_class.detect("darwin24"), described_class.detect("mingw32")])
-      .to match([described_class::Linux, described_class::Darwin, be_instance_of(described_class)])
+    expect([detected_on("linux-gnu"), detected_on("darwin24"), detected_on("mingw32"), detected_on("freebsd14")])
+      .to match([described_class::Linux, described_class::Darwin, described_class::Windows,
+                 be_instance_of(described_class)])
   end
 
   it "leaves the budget to the shim where available memory is unknown" do
@@ -127,6 +130,20 @@ RSpec.describe Elelem::Llama::HostMemory do
 
     it "does not know when vm_stat prints something else" do
       expect(described_class.new(run: ->(_) { "" }).available).to be_nil
+    end
+  end
+
+  describe described_class::Windows do
+    def status(total:, available:) = [64, 50, total, available, 0, 0, 0, 0, 0].pack("L<L<Q<7")
+
+    it "reads the available physical memory from the status Windows fills in" do
+      memory = described_class.new(global_memory_status: -> { status(total: 32 * gib, available: 16 * gib) })
+
+      expect([memory.total, memory.available, memory.budget]).to eq([32 * gib, 16 * gib, 14 * gib])
+    end
+
+    it "does not know when Windows fills in nothing" do
+      expect(described_class.new(global_memory_status: -> {}).budget).to eq(Elelem::Llama::HostMemory::UNKNOWN)
     end
   end
 end
