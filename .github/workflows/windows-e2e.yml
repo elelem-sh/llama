@@ -1,0 +1,54 @@
+name: Windows e2e
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ask:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      ELELEM_GGUF_MODEL: ${{ github.workspace }}\Qwen3-4B-UD-Q4_K_XL.gguf
+    steps:
+      - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
+        with:
+          ruby-version: "4.0"
+          windows-toolchain: none
+      - shell: pwsh
+        run: |
+          $kept = $env:PATH -split ';' | Where-Object { $_ -notmatch 'mingw64|msys64|Strawberry|LLVM|CMake|Chocolatey\\bin' }
+          "PATH=$($kept -join ';')" >> $env:GITHUB_ENV
+      - shell: bash
+        run: |
+          for tool in gcc g++ clang clang++ cc c++ cl x86_64-w64-mingw32-gcc ld cmake ninja; do
+            if command -v "$tool"; then
+              echo "$tool is installed: this job must prove that nothing compiles" >&2
+              exit 1
+            fi
+          done
+      - shell: pwsh
+        run: |
+          gem install --no-document elelem-shell elelem-llama
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (-not (gem list elelem-llama | Select-String 'x64-mingw-ucrt')) { exit 1 }
+      - id: model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: Qwen3-4B-UD-Q4_K_XL.gguf
+          key: qwen3-4b-22c9fc8a
+      - if: steps.model.outputs.cache-hit != 'true'
+        shell: bash
+        run: curl -fsSL -o Qwen3-4B-UD-Q4_K_XL.gguf https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/22c9fc8a8c7700b76a1789366280a6a5a1ad1120/Qwen3-4B-UD-Q4_K_XL.gguf
+      - shell: bash
+        env:
+          ELELEM_CMD_TIMEOUT: "60"
+        run: |
+          nonce=$(ruby -rsecurerandom -e 'print SecureRandom.hex')
+          printf %s "$nonce" > nonce.txt
+          started=$SECONDS
+          elelem ask "Run the command: cat nonce.txt and tell me what it prints" </dev/null | tee said.txt
+          echo "tool call took $((SECONDS - started)) s"
+          grep -q "$nonce" said.txt || { echo "the answer does not contain the nonce" >&2; exit 1; }
