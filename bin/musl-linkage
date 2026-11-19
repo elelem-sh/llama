@@ -1,0 +1,24 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+native=$1
+shipped=$(ls "$native")
+strays=0
+
+for library in "$native"/*; do
+  needed=$(scanelf -B -n -F '%n#F' "$library" | tr ',' '\n')
+  foreign=$(echo "$needed" | grep -v -x -e 'libc\.musl-[a-z0-9_]*\.so\.1' | grep -v -x -F "$shipped" || true)
+  run_path=$(scanelf -B -r -F '%r#F' "$library")
+
+  echo "$library:" $needed
+  [ -n "$needed" ] || { echo "$library names no library it needs: is it a shared object?" >&2; strays=1; }
+  [ -z "$foreign" ] || { echo "$library needs a library outside musl and the gem:" $foreign >&2; strays=1; }
+  case $(basename "$library") in
+    libstdc++.so.6 | libgcc_s.so.1) ;;
+    *) [ "$run_path" = '$ORIGIN' ] || { echo "$library does not look for libraries beside itself" >&2; strays=1; } ;;
+  esac
+done
+
+exit $strays

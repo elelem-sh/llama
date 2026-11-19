@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+installer=https://github.com/spinel-coop/rv/releases/download/v0.7.2/rv-installer.sh
+installer_sha256=0160f8c875b9ae6a52c1914ad1761a2673dbbe80b01aa9fb3f85f7169d19f962
+rv="$HOME/.local/bin/rv"
+
+script=$(mktemp)
+curl -LsSf --retry 3 -o "$script" "$installer"
+echo "$installer_sha256  $script" | sha256sum -c - >&2
+RV_NO_MODIFY_PATH=1 sh "$script" >&2
+rm -f "$script"
+
+"$rv" ruby install 4.0 >&2
+dirname "$("$rv" ruby find 4.0)"

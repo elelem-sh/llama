@@ -28,8 +28,8 @@ fi
 dir=$(ruby -e 'print Gem::Specification.find_by_name("elelem-llama").gem_dir')
 native="$dir/ext/elelem/llama/native"
 
-case $(uname -s) in
-  MINGW*) ;;
+case $(ruby -e 'print RbConfig::CONFIG["host_os"]') in
+  mingw* | *musl*) ;;
   *) bin/cpu-simd "$native" ;;
 esac
 

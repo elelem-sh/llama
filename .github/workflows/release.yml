@@ -162,6 +162,72 @@ jobs:
           done
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
 
+  prebuilt-musl:
+    runs-on: ubuntu-latest
+    container: alpine:3.22
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - run: apk add -q build-base cmake git curl xz linux-headers
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - run: bin/ruby-from-rv >> "$GITHUB_PATH"
+      - run: bin/portable-gem x86_64-linux-musl
+      - run: bin/musl-linkage ext/elelem/llama/native
+      - run: bin/cpu-simd ext/elelem/llama/native
+      - run: ls -l ext/elelem/llama/native elelem-llama-*.gem
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gem-x86_64-linux-musl
+          path: elelem-llama-*.gem
+          if-no-files-found: error
+
+  prebuilt-musl-install:
+    needs: prebuilt-musl
+    runs-on: ubuntu-latest
+    container: alpine:3.22
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      ELELEM_KV_CACHE_TYPE: f16
+    steps:
+      - run: apk add -q curl xz tar
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: bin/ruby-from-rv >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gem-x86_64-linux-musl
+      - id: model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: stories260K.gguf
+          key: stories260K-v1
+      - if: steps.model.outputs.cache-hit != 'true'
+        run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+      - run: |
+          for tool in cc gcc c++ g++ clang make cmake; do
+            if command -v "$tool"; then
+              echo "$tool is installed: this job must prove that nothing compiles" >&2
+              exit 1
+            fi
+          done
+          for runtime in /usr/lib/libstdc++.so.6 /usr/lib/libgcc_s.so.1; do
+            if [ -e "$runtime" ]; then
+              echo "$runtime is installed: this job must prove that the gem brings its own" >&2
+              exit 1
+            fi
+          done
+      - run: test "$(ruby -e 'print Gem::Platform.local')" = x86_64-linux-musl
+      - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x86_64-linux-musl.gem
+      - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
+      - run: ruby bin/refusal-from-the-shim refusing.gguf
+
   macos:
     strategy:
       fail-fast: false
@@ -336,12 +402,14 @@ jobs:
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
       - run: ruby bin/windows-check refusing.gguf
+      - run: ruby bin/refusal-from-the-shim refusing.gguf
       - run: gem uninstall -x elelem-llama
       - env:
           GEM_HOME: C:\gé
         run: |
           gem install --no-document elelem-llama-*-x64-mingw-ucrt.gem
           ruby bin/windows-check refusing.gguf
+          ruby bin/refusal-from-the-shim refusing.gguf
 
   release-please:
     needs: test
@@ -362,7 +430,15 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   publish:
-    needs: [release-please, linux, fedora, macos, prebuilt-install, prebuilt-macos-install, prebuilt-windows-install]
+    needs:
+      - release-please
+      - linux
+      - fedora
+      - macos
+      - prebuilt-install
+      - prebuilt-musl-install
+      - prebuilt-macos-install
+      - prebuilt-windows-install
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     environment: rubygems

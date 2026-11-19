@@ -30,8 +30,6 @@ class LoadedModules
   def path_in(wide_text) = wide_text.force_encoding(Encoding::UTF_16LE).encode(Encoding::UTF_8).tr("\\", "/")
 end
 
-REFUSAL = "this template refuses every request"
-
 def cpu_library_from_the_gem(native, modules: LoadedModules.new)
   loaded = Dir.children(native).grep(/\Aggml-cpu-/).filter_map { modules.path_of(it) }
   strays = loaded.reject { File.dirname(it).casecmp?(native) }
@@ -39,14 +37,6 @@ def cpu_library_from_the_gem(native, modules: LoadedModules.new)
   abort "no CPU library in #{native} is loaded" if loaded.empty?
   abort "CPU libraries loaded from outside #{native}: #{strays.join(", ")}" unless strays.empty?
   puts "cpu library: #{loaded.join(", ")}"
-end
-
-def refusal_caught_by_the_shim(provider)
-  said = []
-  provider.fetch([{ role: "user", content: "hi" }]) { said << it[:text] if it[:type] == "saying" }
-
-  abort "the shim did not report what llama-common threw: #{said.join.inspect}" unless said.join.include?(REFUSAL)
-  puts "the shim caught what llama-common threw: #{said.join.lines.last}"
 end
 
 def memory_budget_within_the_host(memory)
@@ -58,9 +48,7 @@ def memory_budget_within_the_host(memory)
   puts "memory budget: #{budget} of #{total} bytes"
 end
 
-refusing_model = ARGV.fetch(0)
-provider = Elelem::Llama::Provider.new(model: refusing_model, n_ctx: 256, max_tokens: 8)
+Elelem::Llama::Provider.new(model: ARGV.fetch(0), n_ctx: 256, max_tokens: 8)
 
 cpu_library_from_the_gem(Elelem::Llama::Provider::NATIVE)
-refusal_caught_by_the_shim(provider)
 memory_budget_within_the_host(Elelem::Llama::HostMemory.detect)
