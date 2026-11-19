@@ -14,6 +14,8 @@ module Elelem
 
       def linux? = @system.match?(/linux/)
 
+      def musl? = @system.match?(/musl/)
+
       def apple_silicon? = darwin? && @processor.match?(/arm64|aarch64/)
     end
   end

@@ -2,6 +2,7 @@
 
 require "etc"
 require "fileutils"
+require_relative "cxx_runtime"
 require_relative "shared_libraries"
 require_relative "../../../lib/elelem/llama/shim"
 
@@ -18,6 +19,7 @@ EVERY_CPU = ["-DGGML_NATIVE=OFF", "-DGGML_BACKEND_DL=ON", "-DGGML_CPU_ALL_VARIAN
 HOST = Elelem::Llama::Host.new
 DARWIN = HOST.darwin?
 WINDOWS = HOST.windows?
+MUSL = HOST.musl?
 APPLE_SILICON = HOST.apple_silicon?
 METAL = ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"].freeze
 NO_METAL = ["-DGGML_METAL=OFF"].freeze
@@ -70,7 +72,7 @@ def hip_architectures = ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx110
 def chosen_cuda_architectures = ENV.values_at("ELELEM_CUDA_ARCH").compact.map { "-DCMAKE_CUDA_ARCHITECTURES=#{it}" }
 
 def portable_gpu
-  return [] if WINDOWS
+  return [] if WINDOWS || MUSL
   return ["-DGGML_VULKAN=ON"] unless DARWIN
 
   APPLE_SILICON ? METAL : NO_METAL
@@ -154,11 +156,15 @@ def link_flags(libdir)
   on_unix(libdir)
 end
 
+def compiler = ENV["CXX"] || "c++"
+
+def carries_its_cxx_runtime?(backend) = MUSL && backend == "portable"
+
 def link_shim(libdir)
   FileUtils.rm_rf(NATIVE)
   Elelem::Llama::SharedLibraries.new(libdir).install(NATIVE)
 
-  run(ENV["CXX"] || "c++", "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared",
+  run(compiler, "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared",
       "-I", File.join(VENDOR, "include"),
       "-I", File.join(VENDOR, "ggml", "include"),
       "-I", File.join(VENDOR, "common"),
@@ -179,6 +185,8 @@ rescue BuildError => e
   configure_and_build(backend)
   link_shim(File.join(BUILD_DIR, "bin"))
 end
+
+Elelem::Llama::CxxRuntime.new(compiler:).install(NATIVE) if carries_its_cxx_runtime?(backend)
 
 File.write(File.join(EXT_DIR, "Makefile"), <<~MAKE)
   all:

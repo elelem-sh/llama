@@ -34,7 +34,7 @@ Gem::Specification.new do |spec|
   ]
   prebuilt_for = ENV.fetch("ELELEM_LLAMA_PLATFORM", "")
   if prebuilt_for.empty?
-    spec.files += ["ext/elelem/llama/elelem.cpp", "ext/elelem/llama/extconf.rb", "ext/elelem/llama/shared_libraries.rb"]
+    spec.files += %w[elelem.cpp extconf.rb cxx_runtime.rb shared_libraries.rb].map { "ext/elelem/llama/#{it}" }
     # Only what extconf.rb's cmake build (LLAMA_BUILD_COMMON=ON, tests/docs/
     # examples/tools/server all OFF) actually needs to configure and compile.
     # Anchored to the vendor root so this doesn't also strip required nested
