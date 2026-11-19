@@ -1,0 +1,38 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+cd "$(dirname "$0")/.."
+
+platforms="ruby x86_64-linux-gnu aarch64-linux-gnu x86_64-darwin arm64-darwin x64-mingw-ucrt"
+version=$(ruby -r ./lib/elelem/llama/version -e 'print Elelem::Llama::VERSION')
+
+gem_for() {
+  case $1 in
+    ruby) echo "elelem-llama-$version.gem" ;;
+    *) echo "elelem-llama-$version-$1.gem" ;;
+  esac
+}
+
+expected=$(for platform in $platforms; do gem_for "$platform"; done | sort)
+built=$(ls elelem-llama-*.gem | sort)
+
+if [ "$built" != "$expected" ]; then
+  echo "expected exactly these gems:" $expected >&2
+  echo "found:" $built >&2
+  exit 1
+fi
+
+published=$(
+  curl -fsS https://rubygems.org/api/v1/versions/elelem-llama.json |
+    ruby -rjson -e 'JSON.parse($stdin.read).each { puts "#{it["number"]} #{it["platform"]}" }'
+)
+
+for platform in $platforms; do
+  if echo "$published" | grep -q -x -F "$version $platform"; then
+    echo "$(gem_for "$platform") is already published"
+  else
+    gem push "$(gem_for "$platform")"
+  fi
+done
