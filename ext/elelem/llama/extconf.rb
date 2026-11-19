@@ -3,6 +3,7 @@
 require "etc"
 require "fileutils"
 require_relative "shared_libraries"
+require_relative "../../../lib/elelem/llama/shim"
 
 EXT_DIR   = __dir__
 GEM_ROOT  = File.expand_path("../../..", EXT_DIR)
@@ -128,8 +129,7 @@ if File.exist?(STAMP) && File.read(STAMP).strip != backend
 end
 
 def link_shim(libdir)
-  ext = DARWIN ? "dylib" : "so"
-  shim = File.join(NATIVE, "libelelem_llama.#{ext}")
+  shim = Elelem::Llama::Shim.new(dir: NATIVE).path
 
   FileUtils.rm_rf(NATIVE)
   Elelem::Llama::SharedLibraries.new(libdir).install(NATIVE)

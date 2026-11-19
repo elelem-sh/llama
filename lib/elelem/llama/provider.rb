@@ -4,7 +4,7 @@ module Elelem
   module Llama
     class Provider
       NATIVE = File.expand_path("../../../ext/elelem/llama/native", __dir__)
-      SHIM = File.join(NATIVE, "libelelem_llama.#{RbConfig::CONFIG["host_os"] =~ /darwin/ ? "dylib" : "so"}")
+      SHIM = Shim.new(dir: NATIVE)
       V = Fiddle::TYPE_VOIDP
       I = Fiddle::TYPE_INT
       F = Fiddle::TYPE_FLOAT
@@ -19,7 +19,7 @@ module Elelem
 
       def self.functions
         @functions ||= begin
-          lib = Fiddle.dlopen(SHIM)
+          lib = SHIM.open
           Fiddle::Function.new(lib["el_start"], [V], Fiddle::TYPE_VOID).call(NATIVE)
           {
             backend: Fiddle::Function.new(lib["el_backend"], [], V),

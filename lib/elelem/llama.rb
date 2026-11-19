@@ -9,6 +9,7 @@ require_relative "llama/context_choice"
 require_relative "llama/host_memory"
 require_relative "llama/model_resolver"
 require_relative "llama/settings"
+require_relative "llama/shim"
 require_relative "llama/provider"
 
 Elelem.configure do |config|

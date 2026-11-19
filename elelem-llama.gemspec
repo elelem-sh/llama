@@ -27,6 +27,7 @@ Gem::Specification.new do |spec|
     "lib/elelem/llama/model_resolver.rb",
     "lib/elelem/llama/provider.rb",
     "lib/elelem/llama/settings.rb",
+    "lib/elelem/llama/shim.rb",
     "exe/elelem-llama"
   ]
   prebuilt_for = ENV.fetch("ELELEM_LLAMA_PLATFORM", "")
