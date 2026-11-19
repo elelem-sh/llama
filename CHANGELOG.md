@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0](https://github.com/elelem-sh/llama/compare/v0.7.0...v0.8.0) (2026-11-19)
+
+
+### Features
+
+* budget the context from the physical memory Windows has available ([d0bf824](https://github.com/elelem-sh/llama/commit/d0bf824c787e033717b41d62bd7103939e98d351))
+* link the shim and every DLL on Windows with the C and C++ runtime inside and nothing to find at load time ([26e0a77](https://github.com/elelem-sh/llama/commit/26e0a770ef5dd52902dc43557b682681aa4cbf40))
+
+
+### Bug Fixes
+
+* refuse to start when no backend loads from the gem instead of taking one from the working directory ([aa33ad4](https://github.com/elelem-sh/llama/commit/aa33ad400f8a74c92c358065826d57240ac4a0ee))
+* say which Windows error stopped a DLL from loading and look LoadLibraryW up once ([e27d7b9](https://github.com/elelem-sh/llama/commit/e27d7b927718e7195658f3096512ebe7200a7782))
+
 ## [0.7.0](https://github.com/elelem-sh/llama/compare/v0.6.0...v0.7.0) (2026-11-18)
 
 
