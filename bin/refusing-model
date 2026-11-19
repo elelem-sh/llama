@@ -4,12 +4,12 @@
 HEADER = "a4L<Q<Q<"
 HEADER_SIZE = 24
 ALIGNMENT = 32
-STRING = 8
+GGUF_STRING_TYPE = 8
 REFUSAL = "{{ raise_exception('this template refuses every request') }}"
 
 def string(text) = [text.bytesize, text].pack("Q<a*")
 
-def chat_template(text) = string("tokenizer.chat_template") + [STRING].pack("L<") + string(text)
+def chat_template(text) = string("tokenizer.chat_template") + [GGUF_STRING_TYPE].pack("L<") + string(text)
 
 def keeping_the_tensors_aligned(text) = text + (" " * (-chat_template(text).bytesize % ALIGNMENT))
 

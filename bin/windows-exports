@@ -1,0 +1,26 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+native=$1
+runtime='^(_Unwind_|pthread_|__cxa_|__gxx_personality|_Zn[wa]|_Zd[la]|_ZSt9terminatev$|_ZNSt8ios_base|_ZNSt6locale)'
+strays=0
+
+exported_by() {
+  objdump -p "$1" | awk '
+    /^\[Ordinal\/Name Pointer\] Table/ { names = 1; getline; next }
+    names && NF == 0 { names = 0 }
+    names { print $NF }
+  '
+}
+
+for library in "$native"/*; do
+  exported=$(exported_by "$library")
+  leaked=$(echo "$exported" | grep -E "$runtime" || true)
+
+  echo "$library: $(echo "$exported" | grep -c .) exports"
+  [ -z "$leaked" ] || { echo "$library exports the runtime linked into it:" $leaked >&2; strays=1; }
+done
+
+exit $strays
