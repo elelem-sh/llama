@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+cd "$(dirname "$0")/.."
+
+native=ext/elelem/llama/native
+shipped=$(ls "$native")
+strays=0
+
+for library in "$native"/*; do
+  needed=$(objdump -p "$library" | awk '/DLL Name:/ { print $3 }')
+  outside_windows=$(echo "$needed" | grep -v -i -e '^KERNEL32\.dll$' -e '^ADVAPI32\.dll$' -e '^WS2_32\.dll$' -e '^api-ms-win-crt-' || true)
+  foreign=$(echo "$outside_windows" | grep -v -i -x -F "$shipped" || true)
+
+  echo "$library:" $needed
+  [ -n "$needed" ] || { echo "$library names no DLL it needs: is it a DLL?" >&2; strays=1; }
+  [ -z "$foreign" ] || { echo "$library needs a DLL outside Windows and the gem:" $foreign >&2; strays=1; }
+done
+
+exit $strays
