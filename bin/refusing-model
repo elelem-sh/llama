@@ -1,0 +1,22 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+HEADER = "a4L<Q<Q<"
+HEADER_SIZE = 24
+ALIGNMENT = 32
+STRING = 8
+REFUSAL = "{{ raise_exception('this template refuses every request') }}"
+
+def string(text) = [text.bytesize, text].pack("Q<a*")
+
+def chat_template(text) = string("tokenizer.chat_template") + [STRING].pack("L<") + string(text)
+
+def keeping_the_tensors_aligned(text) = text + (" " * (-chat_template(text).bytesize % ALIGNMENT))
+
+source, target = ARGV
+model = File.binread(source)
+magic, version, tensors, pairs = model.unpack(HEADER)
+
+File.binwrite(target, [magic, version, tensors, pairs + 1].pack(HEADER) +
+                      chat_template(keeping_the_tensors_aligned(REFUSAL)) +
+                      model.byteslice(HEADER_SIZE..))

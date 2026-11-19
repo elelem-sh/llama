@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "elelem/llama"
+
+class LoadedModules
+  V = Fiddle::TYPE_VOIDP
+  I = Fiddle::TYPE_INT
+  LONGEST_PATH = 32_768
+  WIDE = 2
+
+  def initialize(kernel32: Fiddle.dlopen("kernel32"))
+    @handle = Fiddle::Function.new(kernel32["GetModuleHandleW"], [V], V)
+    @file_name = Fiddle::Function.new(kernel32["GetModuleFileNameW"], [V, V, I], I)
+  end
+
+  def path_of(name)
+    handle = @handle.call(wide(name))
+    return if handle.null?
+
+    buffer = Fiddle::Pointer.malloc(LONGEST_PATH * WIDE, Fiddle::RUBY_FREE)
+    length = @file_name.call(handle, buffer, LONGEST_PATH)
+    buffer[0, length * WIDE].force_encoding(Encoding::UTF_16LE).encode(Encoding::UTF_8).tr("\\", "/")
+  end
+
+  private
+
+  def wide(text) = "#{text}\0".encode(Encoding::UTF_16LE)
+end
+
+REFUSAL = "this template refuses every request"
+
+refusing_model = ARGV.fetch(0)
+native = Elelem::Llama::Provider::NATIVE
+provider = Elelem::Llama::Provider.new(model: refusing_model, n_ctx: 256, max_tokens: 8)
+
+modules = LoadedModules.new
+cpu_libraries = Dir.children(native).grep(/\Aggml-cpu-/).filter_map { modules.path_of(it) }
+strays = cpu_libraries.reject { File.dirname(it).casecmp?(native) }
+abort "no CPU library in #{native} is loaded" if cpu_libraries.empty?
+abort "CPU libraries loaded from outside #{native}: #{strays.join(", ")}" unless strays.empty?
+puts "cpu library: #{cpu_libraries.join(", ")}"
+
+said = []
+provider.fetch([{ role: "user", content: "hi" }]) { said << it[:text] if it[:type] == "saying" }
+abort "the shim did not report what llama-common threw: #{said.join.inspect}" unless said.join.include?(REFUSAL)
+puts "the shim caught what llama-common threw: #{said.join.lines.last}"
