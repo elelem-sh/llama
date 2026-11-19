@@ -3,20 +3,24 @@
 module Elelem
   module Llama
     class LoadLibrary
-      KERNEL32 = lambda do |wide_path|
-        pointer = Fiddle::TYPE_VOIDP
-        Fiddle::Function.new(Fiddle.dlopen("kernel32")["LoadLibraryW"], [pointer], pointer).call(wide_path)
-      end
-
-      def initialize(load_library_w: KERNEL32)
+      def initialize(load_library_w: nil, last_error: -> { Fiddle.win32_last_error })
         @load_library_w = load_library_w
+        @last_error = last_error
       end
 
       def call(path)
-        raise Fiddle::DLError, "Windows cannot load #{path}" if @load_library_w.call(wide(path)).null?
+        return unless load_library_w.call(wide(path)).null?
+
+        raise Fiddle::DLError, "Windows cannot load #{path}: error #{@last_error.call}"
       end
 
       private
+
+      def load_library_w
+        @load_library_w ||= Fiddle::Function.new(
+          Fiddle.dlopen("kernel32")["LoadLibraryW"], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOIDP
+        )
+      end
 
       def wide(path) = "#{path.tr("/", "\\")}\0".encode(Encoding::UTF_16LE)
     end
