@@ -16,11 +16,17 @@ FALLBACK = { "vulkan" => "cpu", "cuda" => "cpu", "hip" => "cpu", "metal" => "cpu
 HOST_CPU = ["-DGGML_NATIVE=ON"].freeze
 EVERY_CPU = ["-DGGML_NATIVE=OFF", "-DGGML_BACKEND_DL=ON", "-DGGML_CPU_ALL_VARIANTS=ON", "-DGGML_OPENMP=OFF"].freeze
 DARWIN = RbConfig::CONFIG["host_os"] =~ /darwin/
+WINDOWS = RbConfig::CONFIG["host_os"] =~ /mingw|mswin/
 APPLE_SILICON = DARWIN && RbConfig::CONFIG["host_cpu"] =~ /arm64|aarch64/
 METAL = ["-DGGML_METAL=ON", "-DGGML_METAL_EMBED_LIBRARY=ON"].freeze
 NO_METAL = ["-DGGML_METAL=OFF"].freeze
 BESIDE_THE_LOADER = DARWIN ? "@loader_path" : "$ORIGIN"
 OLDEST_MACOS = "13.3"
+LLAMA_LIBRARIES = %w[llama-common llama ggml ggml-base].freeze
+LLAMA_DLLS = %w[libllama-common.dll libllama.dll ggml.dll ggml-base.dll].freeze
+APPLE_FRAMEWORKS = %w[Metal Foundation Accelerate].flat_map { ["-framework", it] }.freeze
+STATIC_RUNTIME = ["-static", "-s", "-Wl,--exclude-libs,libgcc_eh.a:libwinpthread.a:libpthread.a"].freeze
+STATIC_RUNTIME_IN_EVERY_DLL = %w[SHARED MODULE].map { "-DCMAKE_#{it}_LINKER_FLAGS=#{STATIC_RUNTIME.join(" ")}" }.freeze
 
 class BuildError < StandardError; end
 
@@ -63,6 +69,7 @@ def hip_architectures = ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx110
 def chosen_cuda_architectures = ENV.values_at("ELELEM_CUDA_ARCH").compact.map { "-DCMAKE_CUDA_ARCHITECTURES=#{it}" }
 
 def portable_gpu
+  return [] if WINDOWS
   return ["-DGGML_VULKAN=ON"] unless DARWIN
 
   APPLE_SILICON ? METAL : NO_METAL
@@ -109,6 +116,7 @@ def configure_and_build(backend)
     "-DLLAMA_BUILD_EXAMPLES=OFF",
     "-DLLAMA_BUILD_TOOLS=OFF",
     "-DLLAMA_BUILD_SERVER=OFF",
+    *(WINDOWS ? STATIC_RUNTIME_IN_EVERY_DLL : []),
     *backend_flags(backend)
   )
   run("cmake", "--build", BUILD_DIR, "--target", "llama", "llama-common", "--parallel",
@@ -128,28 +136,35 @@ if File.exist?(STAMP) && File.read(STAMP).strip != backend
   FileUtils.rm_rf(BUILD_DIR)
 end
 
-def link_shim(libdir)
-  shim = Elelem::Llama::Shim.new(dir: NATIVE).path
+def beside_the_loader(libdir)
+  ["-fPIC", "-L", libdir, *LLAMA_LIBRARIES.map { "-l#{it}" }, "-Wl,-rpath,#{BESIDE_THE_LOADER}"]
+end
 
+def on_macos(libdir)
+  [*beside_the_loader(libdir), "-Wl,-install_name,@rpath/libelelem_llama.dylib", *APPLE_FRAMEWORKS]
+end
+
+def on_windows(libdir) = [*LLAMA_DLLS.map { File.join(libdir, it) }, *STATIC_RUNTIME]
+
+def link_flags(libdir)
+  return on_windows(libdir) if WINDOWS
+  return on_macos(libdir) if DARWIN
+
+  beside_the_loader(libdir)
+end
+
+def link_shim(libdir)
   FileUtils.rm_rf(NATIVE)
   Elelem::Llama::SharedLibraries.new(libdir).install(NATIVE)
 
-  cxx = ENV["CXX"] || "c++"
-  link_flags = if DARWIN
-                 ["-Wl,-install_name,@rpath/libelelem_llama.dylib",
-                  "-framework", "Metal", "-framework", "Foundation", "-framework", "Accelerate"]
-               else
-                 []
-               end
-  run(cxx, "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared", "-fPIC",
+  run(ENV["CXX"] || "c++", "-std=c++17", "-O2", "-Wall", "-Wextra", "-shared",
       "-I", File.join(VENDOR, "include"),
       "-I", File.join(VENDOR, "ggml", "include"),
-      "-I", File.join(VENDOR, "common"),   # chat.h (common_chat)
-      "-I", File.join(VENDOR, "vendor"),   # nlohmann/json.hpp
+      "-I", File.join(VENDOR, "common"),
+      "-I", File.join(VENDOR, "vendor"),
       File.join(EXT_DIR, "elelem.cpp"),
-      "-o", shim,
-      "-L", libdir, "-lllama-common", "-lllama", "-lggml", "-lggml-base",
-      "-Wl,-rpath,#{BESIDE_THE_LOADER}", *link_flags)
+      "-o", Elelem::Llama::Shim.new(dir: NATIVE).path,
+      *link_flags(libdir))
 end
 
 begin

@@ -44,10 +44,18 @@ RSpec.describe Elelem::Llama::SharedLibraries do
     expect(installed).to eq(["libggml-base.1.dylib"])
   end
 
-  it "keeps the name of a Windows library" do
+  it "keeps the name of a Windows library and of a Windows backend module" do
     build("ggml-base.dll")
+    build("ggml-cpu-haswell.dll")
 
-    expect(installed).to eq(["ggml-base.dll"])
+    expect(installed).to eq(["ggml-base.dll", "ggml-cpu-haswell.dll"])
+  end
+
+  it "leaves out what a Windows library is linked through" do
+    build("llama.dll")
+    build("llama.dll.a")
+
+    expect(installed).to eq(["llama.dll"])
   end
 
   it "leaves out everything that is not a shared library" do

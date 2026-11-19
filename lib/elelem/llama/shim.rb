@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "load_library"
+
 module Elelem
   module Llama
     class Shim
@@ -12,11 +14,13 @@ module Elelem
         @host_os = host_os
       end
 
-      def path = beside(name)
+      def path = File.join(@dir, name)
 
-      def open(dlopen: Fiddle.method(:dlopen))
-        loaded_first.each { dlopen.call(beside(it)) }
-        dlopen.call(path)
+      def open(dlopen: Fiddle.method(:dlopen), load_library: LoadLibrary.new)
+        return dlopen.call(path) unless windows?
+
+        [*LOADED_FIRST_ON_WINDOWS, name].each { load_library.call(File.join(@dir, it)) }
+        dlopen.call(name)
       end
 
       private
@@ -29,11 +33,7 @@ module Elelem
         end
       end
 
-      def loaded_first = windows? ? LOADED_FIRST_ON_WINDOWS : []
-
       def windows? = @host_os.match?(WINDOWS)
-
-      def beside(file) = File.join(@dir, file)
     end
   end
 end

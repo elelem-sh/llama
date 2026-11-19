@@ -4,7 +4,9 @@ require_relative "../../../lib/elelem/llama/shim"
 
 RSpec.describe Elelem::Llama::Shim do
   let(:opened) { [] }
-  let(:dlopen) { ->(path) { opened << path and path } }
+  let(:loaded) { [] }
+  let(:dlopen) { ->(library) { opened << library and "handle of #{library}" } }
+  let(:load_library) { ->(path) { loaded << path } }
 
   def shim_on(host_os) = described_class.new(dir: "/gem/native", host_os:)
 
@@ -21,15 +23,14 @@ RSpec.describe Elelem::Llama::Shim do
   end
 
   it "opens only itself where the loader finds its libraries beside it" do
-    shim_on("linux").open(dlopen:)
-
-    expect(opened).to eq(["/gem/native/libelelem_llama.so"])
+    expect(shim_on("linux").open(dlopen:, load_library:)).to eq("handle of /gem/native/libelelem_llama.so")
+    expect(loaded).to be_empty
   end
 
-  it "opens every library it needs by full path, each after the ones it needs, on Windows" do
-    shim_on("mingw32").open(dlopen:)
+  it "loads every library by full path, each after the ones it needs, on Windows" do
+    shim_on("mingw32").open(dlopen:, load_library:)
 
-    expect(opened).to eq(%w[
+    expect(loaded).to eq(%w[
                            /gem/native/ggml-base.dll
                            /gem/native/ggml.dll
                            /gem/native/libllama.dll
@@ -38,7 +39,8 @@ RSpec.describe Elelem::Llama::Shim do
                          ])
   end
 
-  it "answers with the opened shim" do
-    expect(shim_on("mingw32").open(dlopen:)).to eq("/gem/native/elelem_llama.dll")
+  it "opens the loaded shim by name on Windows, where a path outside the ANSI code page cannot be opened" do
+    expect(shim_on("mingw32").open(dlopen:, load_library:)).to eq("handle of elelem_llama.dll")
+    expect(opened).to eq(["elelem_llama.dll"])
   end
 end
