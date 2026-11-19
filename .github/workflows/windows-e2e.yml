@@ -49,6 +49,6 @@ jobs:
           nonce=$(ruby -rsecurerandom -e 'print SecureRandom.hex')
           printf %s "$nonce" > nonce.txt
           started=$SECONDS
-          elelem ask "Run the command: cat nonce.txt and tell me what it prints" </dev/null | tee said.txt
+          elelem-shell ask "Run the command: cat nonce.txt and tell me what it prints" </dev/null | tee said.txt
           echo "tool call took $((SECONDS - started)) s"
           grep -q "$nonce" said.txt || { echo "the answer does not contain the nonce" >&2; exit 1; }
