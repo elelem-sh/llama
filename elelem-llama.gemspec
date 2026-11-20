@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.summary = "A llama.cpp plugin for elelem."
   spec.description = "A llama.cpp plugin for elelem."
   spec.homepage = "https://elelem.sh"
-  spec.license = "MIT"
+  spec.licenses = ["MIT"]
   spec.required_ruby_version = ">= 4.0.0"
   spec.metadata["allowed_push_host"] = "https://rubygems.org"
   spec.metadata["homepage_uri"] = spec.homepage
@@ -34,7 +34,7 @@ Gem::Specification.new do |spec|
   ]
   prebuilt_for = ENV.fetch("ELELEM_LLAMA_PLATFORM", "")
   if prebuilt_for.empty?
-    spec.files += %w[elelem.cpp extconf.rb cxx_runtime.rb shared_libraries.rb].map { "ext/elelem/llama/#{it}" }
+    spec.files += Dir["ext/elelem/llama/*.{cpp,rb}"]
     # Only what extconf.rb's cmake build (LLAMA_BUILD_COMMON=ON, tests/docs/
     # examples/tools/server all OFF) actually needs to configure and compile.
     # Anchored to the vendor root so this doesn't also strip required nested
@@ -47,6 +47,10 @@ Gem::Specification.new do |spec|
   else
     spec.platform = prebuilt_for
     spec.files += ["vendor/llama.cpp/LICENSE", *Dir["ext/elelem/llama/native/*"]]
+    if prebuilt_for == "x86_64-linux-musl"
+      spec.files += Dir["vendor/gcc-runtime/*"]
+      spec.licenses += ["GPL-3.0-or-later WITH GCC-exception-3.1"]
+    end
   end
   spec.bindir = "exe"
   spec.executables = ["elelem-llama"]

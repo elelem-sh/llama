@@ -1,0 +1,56 @@
+GCC runtime libraries in the x86_64-linux-musl gem of elelem-llama
+==================================================================
+
+Alpine Linux has no C++ runtime until one is installed, so this gem
+carries the one it was built with. Two files in ext/elelem/llama/native
+are not part of elelem-llama and are not under its MIT license:
+
+  libstdc++-elelem.so.6   the GNU C++ standard library (libstdc++.so.6)
+  libgcc_s-elelem.so.1    the GCC support library (libgcc_s.so.1)
+
+They are the GNU Compiler Collection runtime libraries, Copyright (C)
+Free Software Foundation, Inc., licensed under the GNU General Public
+License, version 3 or later, with the GCC Runtime Library Exception,
+version 3.1 (SPDX: GPL-3.0-or-later WITH GCC-exception-3.1). The texts
+of both are beside this file: COPYING3 and COPYING.RUNTIME.
+
+Where the binaries come from
+----------------------------
+
+They are the files of two Alpine Linux 3.22 packages, x86_64, built
+from the aport main/gcc:
+
+  libstdc++-14.2.0-r6     usr/lib/libstdc++.so.6.0.33
+  libgcc-14.2.0-r6        usr/lib/libgcc_s.so.1
+
+Where the source is
+-------------------
+
+GCC 14.2.0, as released:
+
+  https://gcc.gnu.org/pub/gcc/releases/gcc-14.2.0/gcc-14.2.0.tar.xz
+
+The patches and the build script (APKBUILD) Alpine applied to it, at
+the commit that built these packages:
+
+  https://gitlab.alpinelinux.org/alpine/aports/-/tree/fbf60319be3bbaf6dd32ef55cc6fb7189e05c266/main/gcc
+
+What elelem-llama changed
+-------------------------
+
+Nothing in the code. The files are renamed, and patchelf rewrites the
+names in their ELF headers to match, so that this copy never stands in
+for the libstdc++.so.6 or libgcc_s.so.1 of the system it is installed
+on:
+
+  patchelf --set-soname libstdc++-elelem.so.6 libstdc++-elelem.so.6
+  patchelf --set-soname libgcc_s-elelem.so.1 libgcc_s-elelem.so.1
+
+and then, on these two and on every other library beside them:
+
+  patchelf --replace-needed libstdc++.so.6 libstdc++-elelem.so.6 \
+           --replace-needed libgcc_s.so.1 libgcc_s-elelem.so.1 <library>
+
+The code that does it is ext/elelem/llama/cxx_runtime.rb in
+
+  https://github.com/elelem-sh/llama
