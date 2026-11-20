@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/elelem-sh/llama/compare/v0.8.0...v0.9.0) (2026-11-20)
+
+
+### Features
+
+* build a CPU-only portable gem on musl that carries its own C++ runtime ([2b763d3](https://github.com/elelem-sh/llama/commit/2b763d3be94f0903726cb04826aa614a35c92289))
+
+
+### Bug Fixes
+
+* carry the GCC runtime under names of its own, so it never stands in for the one of the system ([85204b7](https://github.com/elelem-sh/llama/commit/85204b71aa78b30e93ad5ec520c53922ec6a71e0))
+
 ## [0.8.0](https://github.com/elelem-sh/llama/compare/v0.7.0...v0.8.0) (2026-11-19)
 
 
