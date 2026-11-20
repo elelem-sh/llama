@@ -406,6 +406,7 @@ jobs:
               exit 1
             fi
           done
+      - run: ruby -r ./ext/elelem/llama/search_path -e 'exit Elelem::Llama::SearchPath.new.include?("ruby")'
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf

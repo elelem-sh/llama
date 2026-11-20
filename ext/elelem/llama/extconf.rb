@@ -4,6 +4,7 @@ require "etc"
 require "fileutils"
 require_relative "compiler"
 require_relative "cxx_runtime"
+require_relative "search_path"
 require_relative "shared_libraries"
 require_relative "../../../lib/elelem/llama/shim"
 
@@ -18,6 +19,7 @@ FALLBACK = { "vulkan" => "cpu", "cuda" => "cpu", "hip" => "cpu", "metal" => "cpu
 HOST_CPU = ["-DGGML_NATIVE=ON"].freeze
 EVERY_CPU = ["-DGGML_NATIVE=OFF", "-DGGML_BACKEND_DL=ON", "-DGGML_CPU_ALL_VARIANTS=ON", "-DGGML_OPENMP=OFF"].freeze
 HOST = Elelem::Llama::Host.new
+SEARCH_PATH = Elelem::Llama::SearchPath.new
 DARWIN = HOST.darwin?
 WINDOWS = HOST.windows?
 MUSL = HOST.musl?
@@ -39,15 +41,8 @@ def run(*cmd)
   system(*cmd) || raise(BuildError, "build step failed: #{cmd.join(" ")}")
 end
 
-def which(cmd)
-  ENV["PATH"].to_s.split(File::PATH_SEPARATOR).any? do |dir|
-    path = File.join(dir, cmd)
-    File.executable?(path) && !File.directory?(path)
-  end
-end
-
 def vulkan_loader?
-  return true if which("vulkaninfo")
+  return true if SEARCH_PATH.include?("vulkaninfo")
 
   %w[/usr/lib64 /usr/lib /usr/local/lib /lib64 /lib].any? do |dir|
     !Dir.glob(File.join(dir, "libvulkan.so*")).empty?
@@ -65,7 +60,7 @@ rescue Errno::ENOENT
 end
 
 def hip_available?
-  which("hipcc") && !hip_gfx_target.nil?
+  SEARCH_PATH.include?("hipcc") && !hip_gfx_target.nil?
 end
 
 def hip_architectures = ENV.fetch("ELELEM_HIP_ARCH") { hip_gfx_target || "gfx1100" }
@@ -99,8 +94,8 @@ def detect_backend
 
   return "metal" if APPLE_SILICON
   return "cpu" if DARWIN
-  return "cuda" if which("nvcc")
-  return "vulkan" if which("glslc") && vulkan_loader?
+  return "cuda" if SEARCH_PATH.include?("nvcc")
+  return "vulkan" if SEARCH_PATH.include?("glslc") && vulkan_loader?
   return "hip" if hip_available?
 
   "cpu"
