@@ -17,6 +17,12 @@ module Elelem
       def musl? = @system.match?(/musl/)
 
       def apple_silicon? = darwin? && @processor.match?(/arm64|aarch64/)
+
+      def builds_from_source? = !windows? || mingw_on_x64?
+
+      private
+
+      def mingw_on_x64? = @system.match?(/mingw/) && @processor.match?(/x86_64|x64/)
     end
   end
 end

@@ -34,6 +34,9 @@ APPLE_FRAMEWORKS = %w[Metal Foundation Accelerate].flat_map { ["-framework", it]
 STATIC_RUNTIME = ["-static", "-s", "-Wl,--exclude-libs,libgcc_eh.a:libwinpthread.a:libpthread.a"].freeze
 STATIC_RUNTIME_IN_EVERY_DLL = %w[SHARED MODULE].map { "-DCMAKE_#{it}_LINKER_FLAGS=#{STATIC_RUNTIME.join(" ")}" }.freeze
 
+NO_BUILD_HERE = "elelem: elelem-llama does not build on this Windows Ruby (#{RbConfig::CONFIG["arch"]}); use x64 " \
+                "Ruby 4.0 from RubyInstaller or rv, which installs the prebuilt x64-mingw-ucrt gem".freeze
+
 class BuildError < StandardError; end
 
 def run(*cmd)
@@ -122,6 +125,8 @@ def configure_and_build(backend)
       ENV.fetch("ELELEM_BUILD_JOBS") { Etc.nprocessors.to_s })
   File.write(STAMP, backend)
 end
+
+abort NO_BUILD_HERE unless HOST.builds_from_source?
 
 unless File.exist?(File.join(VENDOR, "CMakeLists.txt"))
   abort "elelem: vendored llama.cpp missing at #{VENDOR}\n        run: git submodule update --init --recursive"

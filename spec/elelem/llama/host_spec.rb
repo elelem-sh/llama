@@ -21,4 +21,14 @@ RSpec.describe Elelem::Llama::Host do
     expect([host("darwin25", "arm64"), host("darwin25"), host("linux-gnu", "aarch64")].map(&:apple_silicon?))
       .to eq([true, false, false])
   end
+
+  it "builds from source everywhere but on Windows" do
+    expect([host("linux-gnu", "aarch64"), host("linux-musl"), host("darwin25", "arm64")].map(&:builds_from_source?))
+      .to eq([true, true, true])
+  end
+
+  it "builds from source on Windows only with MinGW on x64" do
+    expect([host("mingw32"), host("mingw32", "aarch64"), host("mswin64_140", "x64")].map(&:builds_from_source?))
+      .to eq([true, false, false])
+  end
 end
