@@ -1,0 +1,36 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "rubygems/package"
+
+LINKED_INTO_EVERY_BUILD = %w[
+  vendor/llama.cpp/LICENSE
+  vendor/llama.cpp/licenses/LICENSE-jsonhpp
+  vendor/llama.cpp/vendor/cpp-httplib/LICENSE
+  vendor/notices/LICENSE-llamafile-sgemm
+  vendor/notices/LICENSE-yarn
+].freeze
+VULKAN_HEADERS = %w[
+  vendor/vulkan-headers/LICENSE.md
+  vendor/vulkan-headers/LICENSES/Apache-2.0.txt
+  vendor/vulkan-headers/LICENSES/MIT.txt
+].freeze
+GCC_RUNTIME = %w[vendor/gcc-runtime/COPYING3 vendor/gcc-runtime/COPYING.RUNTIME vendor/gcc-runtime/NOTICE].freeze
+WINPTHREADS = %w[vendor/winpthreads/COPYING].freeze
+LINKED_ONLY_INTO = {
+  "x86_64-linux-gnu" => VULKAN_HEADERS,
+  "aarch64-linux-gnu" => VULKAN_HEADERS,
+  "x86_64-linux-musl" => GCC_RUNTIME,
+  "x86_64-darwin" => [],
+  "arm64-darwin" => [],
+  "x64-mingw-ucrt" => WINPTHREADS
+}.freeze
+
+gem = Gem::Package.new(ARGV.fetch(0))
+name = gem.spec.full_name
+platform = gem.spec.platform.to_s
+notices = LINKED_INTO_EVERY_BUILD + LINKED_ONLY_INTO.fetch(platform) { abort "#{name} is built for no platform known here" }
+missing = notices - gem.contents
+
+abort "#{name} links code whose notice it leaves behind: #{missing.join(", ")}" unless missing.empty?
+puts "#{name} carries the notice of everything it links:", notices

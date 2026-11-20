@@ -154,6 +154,7 @@ jobs:
       - if: steps.model.outputs.cache-hit != 'true'
         run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
       - run: bin/bare-host
+      - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
 
   prebuilt-musl:
@@ -218,6 +219,7 @@ jobs:
         run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
       - run: bin/bare-host ${{ matrix.without }}
       - run: test "$(ruby -e 'print Gem::Platform.local')" = x86_64-linux-musl
+      - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-x86_64-linux-musl.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x86_64-linux-musl.gem
       - run: ruby bin/runtime-from-the-gem
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
@@ -315,6 +317,7 @@ jobs:
           key: stories260K-v1
       - if: steps.model.outputs.cache-hit != 'true'
         run: curl -fsSL -o stories260K.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf
+      - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
       - run: >-
           bin/without-compilers bin/platform-check "$PWD/stories260K.gguf" ${{ matrix.backend }}
           "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
@@ -343,6 +346,7 @@ jobs:
         run: >-
           ridk exec pacman -Sy --noconfirm --needed mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake
           mingw-w64-ucrt-x86_64-ninja
+      - run: bin/winpthreads-as-noticed
       - run: bin/portable-gem x64-mingw-ucrt
       - run: bin/windows-imports ext/elelem/llama/native
       - run: bin/windows-exports ext/elelem/llama/native
@@ -394,6 +398,7 @@ jobs:
               exit 1
             fi
           done
+      - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
       - run: ruby bin/windows-check refusing.gguf

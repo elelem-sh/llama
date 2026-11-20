@@ -1,0 +1,26 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+cd "$(dirname "$0")/.."
+
+notice=vendor/winpthreads/COPYING
+linked=$(cygpath -u "$("${CC:-cc}" -print-file-name=libwinpthread.a)")
+licenses=$(dirname "$(dirname "$linked")")/share/licenses
+
+fail() {
+  echo "$1" >&2
+  exit 1
+}
+
+[ -f "$linked" ] || fail "the compiler finds no libwinpthread.a to link: $linked"
+
+compared=0
+for installed in "$licenses"/*winpthread*/COPYING; do
+  [ -f "$installed" ] || fail "no license of winpthreads is installed in $licenses"
+  diff --strip-trailing-cr "$notice" "$installed" || fail "$installed is installed, and $notice is the license of another"
+  compared=$((compared + 1))
+done
+
+echo "$notice is the license of $linked, as installed in $compared places"
