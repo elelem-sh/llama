@@ -48,7 +48,8 @@ def memory_budget_within_the_host(memory)
   puts "memory budget: #{budget} of #{total} bytes"
 end
 
-Elelem::Llama::Provider.new(model: ARGV.fetch(0), n_ctx: 256, max_tokens: 8)
+def model_loaded_from(path) = Elelem::Llama::Provider.new(model: path, n_ctx: 256, max_tokens: 8)
 
+model_loaded_from(ARGV.fetch(0))
 cpu_library_from_the_gem(Elelem::Llama::Provider::NATIVE)
 memory_budget_within_the_host(Elelem::Llama::HostMemory.detect)

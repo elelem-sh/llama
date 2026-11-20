@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+fail() {
+  echo "$1" >&2
+  exit 1
+}
+
+for tool in $("$(dirname "$0")/compilers"); do
+  if command -v "$tool"; then fail "$tool is installed: this host must prove that nothing compiles"; fi
+done
+
+for path in "$@"; do
+  if [ -e "$path" ]; then fail "$path is installed: this host must prove that the gem brings its own"; fi
+done

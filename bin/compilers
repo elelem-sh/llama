@@ -1,0 +1,3 @@
+#!/bin/sh
+
+echo cc c++ gcc g++ clang clang++ make gmake cmake

@@ -9,6 +9,7 @@ refusing_model = ARGV.fetch(0)
 provider = Elelem::Llama::Provider.new(model: refusing_model, n_ctx: 256, max_tokens: 8)
 said = []
 provider.fetch([{ role: "user", content: "hi" }]) { said << it[:text] if it[:type] == "saying" }
+reply = said.join
 
-abort "the shim did not report what llama-common threw: #{said.join.inspect}" unless said.join.include?(REFUSAL)
-puts "the shim caught what llama-common threw: #{said.join.lines.last}"
+abort "the shim did not report what llama-common threw: #{reply.inspect}" unless reply.include?(REFUSAL)
+puts "the shim caught what llama-common threw: #{reply.lines.last}"

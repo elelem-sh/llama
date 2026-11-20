@@ -13,7 +13,7 @@ exit 1
 TRIPWIRE
 chmod +x "$tripwires/compiler"
 
-for tool in cc c++ gcc g++ clang clang++ make gmake cmake; do
+for tool in $("$(dirname "$0")/compilers"); do
   ln -s compiler "$tripwires/$tool"
 done
 
