@@ -2,6 +2,7 @@
 
 require "etc"
 require "fileutils"
+require_relative "compiler"
 require_relative "cxx_runtime"
 require_relative "shared_libraries"
 require_relative "../../../lib/elelem/llama/shim"
@@ -156,7 +157,7 @@ def link_flags(libdir)
   on_unix(libdir)
 end
 
-def compiler = ENV["CXX"] || "c++"
+def compiler = ENV.fetch("CXX", "c++")
 
 def carries_its_cxx_runtime?(backend) = MUSL && backend == "portable"
 
@@ -186,7 +187,9 @@ rescue BuildError => e
   link_shim(File.join(BUILD_DIR, "bin"))
 end
 
-Elelem::Llama::CxxRuntime.new(compiler:).install(NATIVE) if carries_its_cxx_runtime?(backend)
+def cxx_runtime = Elelem::Llama::CxxRuntime.new(compiler: Elelem::Llama::Compiler.new(compiler))
+
+cxx_runtime.install(NATIVE) if carries_its_cxx_runtime?(backend)
 
 File.write(File.join(EXT_DIR, "Makefile"), <<~MAKE)
   all:

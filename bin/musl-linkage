@@ -7,17 +7,26 @@ native=$1
 shipped=$(ls "$native")
 strays=0
 
+stray() {
+  echo "$1" >&2
+  strays=1
+}
+
 for library in "$native"/*; do
+  name=$(basename "$library")
   needed=$(scanelf -B -n -F '%n#F' "$library" | tr ',' '\n')
   foreign=$(echo "$needed" | grep -v -x -e 'libc\.musl-[a-z0-9_]*\.so\.1' | grep -v -x -F "$shipped" || true)
   run_path=$(scanelf -B -r -F '%r#F' "$library")
+  soname=$(scanelf -B -S -F '%S#F' "$library")
 
   echo "$library:" $needed
-  [ -n "$needed" ] || { echo "$library names no library it needs: is it a shared object?" >&2; strays=1; }
-  [ -z "$foreign" ] || { echo "$library needs a library outside musl and the gem:" $foreign >&2; strays=1; }
-  case $(basename "$library") in
-    libstdc++.so.6 | libgcc_s.so.1) ;;
-    *) [ "$run_path" = '$ORIGIN' ] || { echo "$library does not look for libraries beside itself" >&2; strays=1; } ;;
+  [ -n "$needed" ] || stray "$library names no library it needs: is it a shared object?"
+  [ -z "$foreign" ] || stray "$library needs a library outside musl and the gem: $(echo $foreign)"
+  case $name in
+    libstdc++-elelem.so.6 | libgcc_s-elelem.so.1)
+      [ "$soname" = "$name" ] || stray "$library answers to $soname, a name the system may give to its own"
+      ;;
+    *) [ "$run_path" = '$ORIGIN' ] || stray "$library does not look for libraries beside itself" ;;
   esac
 done
 

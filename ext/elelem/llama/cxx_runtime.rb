@@ -1,30 +1,39 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require_relative "patchelf"
 
 module Elelem
   module Llama
     class CxxRuntime
-      LIBRARIES = %w[libstdc++.so.6 libgcc_s.so.1].freeze
+      OWN_NAMES = { "libstdc++.so.6" => "libstdc++-elelem.so.6", "libgcc_s.so.1" => "libgcc_s-elelem.so.1" }.freeze
 
-      def initialize(compiler:, locate: ->(library) { `#{compiler} -print-file-name=#{library}`.strip })
+      def initialize(compiler:, patchelf: Patchelf.new)
         @compiler = compiler
-        @locate = locate
+        @patchelf = patchelf
       end
 
       def install(into)
         FileUtils.mkdir_p(into)
-        LIBRARIES.each { FileUtils.cp(found(it), File.join(into, it)) }
+        OWN_NAMES.each { |library, own| carry(library, File.join(into, own)) }
+        Dir.children(into).sort.each { @patchelf.need(File.join(into, it), OWN_NAMES) }
       end
 
       private
 
+      def carry(library, as)
+        FileUtils.cp(found(library), as)
+        @patchelf.name(as, File.basename(as))
+      end
+
       def found(library)
-        path = @locate.call(library)
-        return path if File.file?(path)
+        path = @compiler.file_name(library)
+        return path if known?(path)
 
         raise "#{@compiler} does not know where #{library} is"
       end
+
+      def known?(path) = File.absolute_path?(path) && File.file?(path)
     end
   end
 end
