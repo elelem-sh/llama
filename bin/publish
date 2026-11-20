@@ -5,7 +5,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-platforms="ruby x86_64-linux-gnu aarch64-linux-gnu x86_64-linux-musl x86_64-darwin arm64-darwin x64-mingw-ucrt"
+platforms="x86_64-linux-gnu aarch64-linux-gnu x86_64-linux-musl x86_64-darwin arm64-darwin x64-mingw-ucrt ruby"
 version=$(ruby -r ./lib/elelem/llama/version -e 'print Elelem::Llama::VERSION')
 
 gem_for() {
