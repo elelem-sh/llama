@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "elelem/llama"
+
+class MappedRuntimes
+  RUNTIME = /libstdc\+\+|libgcc_s/
+  PATH = 5
+
+  def initialize(maps: "/proc/self/maps")
+    @maps = maps
+  end
+
+  def paths = File.foreach(@maps, chomp: true).filter_map { it.split(" ", PATH + 1)[PATH] }.grep(RUNTIME).uniq
+end
+
+runtimes = MappedRuntimes.new
+native = File.realpath(Elelem::Llama::Provider::NATIVE)
+
+before_the_shim = runtimes.paths
+Elelem::Llama::Provider.backend
+with_the_shim = runtimes.paths - before_the_shim
+strays = with_the_shim.reject { File.dirname(File.realpath(it)) == native }
+
+puts "runtime mapped before the shim: #{before_the_shim.join(", ")}" unless before_the_shim.empty?
+abort "the shim mapped no C++ runtime: where does it take one from?" if with_the_shim.empty?
+abort "the shim mapped a runtime from outside #{native}: #{strays.join(", ")}" unless strays.empty?
+puts "runtime mapped with the shim: #{with_the_shim.join(", ")}"

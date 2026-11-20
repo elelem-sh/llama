@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+cd "$(dirname "$0")/.."
+
+notice=vendor/gcc-runtime/NOTICE
+installed=$(apk info -e -v libstdc++ libgcc)
+
+fail() {
+  echo "$1" >&2
+  exit 1
+}
+
+[ "$(echo "$installed" | wc -l)" -eq 2 ] || fail "expected libstdc++ and libgcc to be installed, found: $installed"
+
+for package in $installed; do
+  grep -q -w -F -e "$package" "$notice" || fail "$package is installed, and $notice names the source of another"
+done
+
+echo "$notice names the source of:" $installed
