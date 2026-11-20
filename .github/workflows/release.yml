@@ -156,6 +156,10 @@ jobs:
       - run: bin/bare-host
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+      - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
+      - run: ruby bin/refusal-from-the-shim refusing.gguf
+        env:
+          ELELEM_KV_CACHE_TYPE: f16
 
   prebuilt-musl:
     runs-on: ubuntu-latest
@@ -321,6 +325,10 @@ jobs:
       - run: >-
           bin/without-compilers bin/platform-check "$PWD/stories260K.gguf" ${{ matrix.backend }}
           "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+      - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
+      - run: ruby bin/refusal-from-the-shim refusing.gguf
+        env:
+          ELELEM_KV_CACHE_TYPE: f16
 
   prebuilt-windows:
     runs-on: windows-latest
