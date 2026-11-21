@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/elelem-sh/llama/compare/v0.9.0...v0.9.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* find nvcc, glslc and vulkaninfo on Windows by the suffixes PATHEXT names ([04fe1a6](https://github.com/elelem-sh/llama/commit/04fe1a67c91ecf272c537f11a0fbee56273c6749))
+* refuse in one sentence a Windows Ruby the source gem cannot build on ([80535a1](https://github.com/elelem-sh/llama/commit/80535a13914463b766786dd618aa435b2326e261))
+
 ## [0.9.0](https://github.com/elelem-sh/llama/compare/v0.8.0...v0.9.0) (2026-11-20)
 
 
