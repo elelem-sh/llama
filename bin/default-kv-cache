@@ -1,0 +1,20 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "elelem/llama"
+
+OVERRIDE = "ELELEM_KV_CACHE_TYPE"
+DEFAULT = "q8_0"
+
+abort "#{OVERRIDE}=#{ENV.fetch(OVERRIDE)} overrides the default this check is for" if ENV.key?(OVERRIDE)
+
+wide_headed_model = ARGV.fetch(0)
+provider = Elelem::Llama::Provider.new(model: wide_headed_model, n_ctx: 256, max_tokens: 8)
+kv_cache = provider.settings.kv_cache
+said = []
+provider.fetch([{ role: "user", content: "hi" }]) { said << it[:text] if it[:type] == "saying" }
+reply = said.join
+
+abort "the KV cache is #{kv_cache}, expected #{DEFAULT}" unless kv_cache == DEFAULT
+abort "no reply: #{reply.inspect}" if reply.empty? || reply.start_with?("[")
+puts "reply with a #{kv_cache} KV cache: #{reply}"

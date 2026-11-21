@@ -7,6 +7,11 @@ on:
 
 permissions: {}
 
+env:
+  SMOLLM2_135M_URL: >-
+    https://huggingface.co/unsloth/SmolLM2-135M-Instruct-GGUF/resolve/9e6855bc4be717fca1ef21360a1db4b29d5c559a/SmolLM2-135M-Instruct-Q4_K_M.gguf
+  SMOLLM2_135M_SHA256: ed5fa30c487b282ec156c29062f1222e5c20875a944ac98289dbd242e947f747
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -156,6 +161,12 @@ jobs:
       - run: bin/bare-host
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: smollm2-135M.gguf
+          key: smollm2-135M-${{ env.SMOLLM2_135M_SHA256 }}
+      - run: bin/pinned-download "$SMOLLM2_135M_URL" "$SMOLLM2_135M_SHA256" smollm2-135M.gguf
+      - run: ruby bin/default-kv-cache smollm2-135M.gguf
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
       - run: ruby bin/refusal-from-the-shim refusing.gguf
         env:
@@ -225,6 +236,12 @@ jobs:
       - run: test "$(ruby -e 'print Gem::Platform.local')" = x86_64-linux-musl
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-x86_64-linux-musl.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x86_64-linux-musl.gem
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: smollm2-135M.gguf
+          key: smollm2-135M-${{ env.SMOLLM2_135M_SHA256 }}
+      - run: bin/pinned-download "$SMOLLM2_135M_URL" "$SMOLLM2_135M_SHA256" smollm2-135M.gguf
+      - run: env -u ELELEM_KV_CACHE_TYPE ruby bin/default-kv-cache smollm2-135M.gguf
       - run: ruby bin/runtime-from-the-gem
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
       - run: ruby bin/refusal-from-the-shim refusing.gguf
@@ -325,6 +342,12 @@ jobs:
       - run: >-
           bin/without-compilers bin/platform-check "$PWD/stories260K.gguf" ${{ matrix.backend }}
           "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: smollm2-135M.gguf
+          key: smollm2-135M-${{ env.SMOLLM2_135M_SHA256 }}
+      - run: bin/pinned-download "$SMOLLM2_135M_URL" "$SMOLLM2_135M_SHA256" smollm2-135M.gguf
+      - run: ruby bin/default-kv-cache smollm2-135M.gguf
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
       - run: ruby bin/refusal-from-the-shim refusing.gguf
         env:
@@ -409,6 +432,12 @@ jobs:
       - run: ruby -r ./ext/elelem/llama/search_path -e 'exit Elelem::Llama::SearchPath.new.include?("ruby")'
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: smollm2-135M.gguf
+          key: smollm2-135M-${{ env.SMOLLM2_135M_SHA256 }}
+      - run: bin/pinned-download "$SMOLLM2_135M_URL" "$SMOLLM2_135M_SHA256" smollm2-135M.gguf
+      - run: env -u ELELEM_KV_CACHE_TYPE ruby bin/default-kv-cache smollm2-135M.gguf
       - run: ruby bin/refusing-model stories260K.gguf refusing.gguf
       - run: ruby bin/windows-check refusing.gguf
       - run: ruby bin/refusal-from-the-shim refusing.gguf

@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -eu
+[ -n "${DEBUG:-}" ] && set -x
+
+url=$1
+sha256=$2
+path=$3
+
+[ -f "$path" ] || curl -fsSL -o "$path" "$url"
+
+ruby -rdigest -e '
+  path, expected = ARGV
+  actual = Digest::SHA256.file(path).hexdigest
+  abort "#{path} has sha256 #{actual}, expected #{expected}" unless actual == expected
+  puts "#{path}: sha256 #{actual}"
+' "$path" "$sha256"
