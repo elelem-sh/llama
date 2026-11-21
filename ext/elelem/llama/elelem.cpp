@@ -213,6 +213,55 @@ extern "C" {
 #endif
   }
 
+  static const char *el_device_type_name(ggml_backend_dev_t dev) {
+    switch (ggml_backend_dev_type(dev)) {
+      case GGML_BACKEND_DEVICE_TYPE_CPU: return "cpu";
+      case GGML_BACKEND_DEVICE_TYPE_GPU: return "gpu";
+      case GGML_BACKEND_DEVICE_TYPE_IGPU: return "igpu";
+      case GGML_BACKEND_DEVICE_TYPE_ACCEL: return "accel";
+      case GGML_BACKEND_DEVICE_TYPE_META: return "meta";
+    }
+    return "unknown";
+  }
+
+  static bool el_has_its_own_memory(ggml_backend_dev_t dev) {
+    return ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_GPU && !el_shares_host_memory(dev);
+  }
+
+  static json el_describe_device(ggml_backend_dev_t dev) {
+    size_t free_mem = 0, total_mem = 0;
+    ggml_backend_dev_memory(dev, &free_mem, &total_mem);
+    const char *name = ggml_backend_dev_name(dev);
+    const char *description = ggml_backend_dev_description(dev);
+    return {
+      {"name", name ? name : ""},
+      {"description", description ? description : ""},
+      {"type", el_device_type_name(dev)},
+      {"dedicated", el_has_its_own_memory(dev)},
+      {"free", (uint64_t) free_mem},
+      {"total", (uint64_t) total_mem}
+    };
+  }
+
+  const char *el_devices() {
+    static thread_local std::string buf;
+
+    buf = "[]";
+    if (!el_ensure_backend()) return buf.c_str();
+
+    try {
+      json devices = json::array();
+      for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (dev) devices.push_back(el_describe_device(dev));
+      }
+      buf = devices.dump(-1, ' ', false, json::error_handler_t::replace);
+    } catch (const std::exception &) {
+      buf = "[]";
+    }
+    return buf.c_str();
+  }
+
   static int64_t el_host_budget(long long requested) {
     if (requested >= 0) return requested;
     size_t free_mem = 0, total_mem = 0;

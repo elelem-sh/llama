@@ -78,6 +78,16 @@ RSpec.describe Elelem::Llama::Provider do
     end
   end
 
+  describe ".devices" do
+    it "lists what the shim found on this machine" do
+      found = [{ name: "Vulkan0", description: "Radeon RX 7600", type: "gpu", dedicated: true,
+                 free: 8_000_000_000, total: 8_500_000_000 }]
+      described_class.functions[:devices] = -> { Fiddle::Pointer[JSON.generate(found)] }
+
+      expect(described_class.devices).to eq([Elelem::Llama::Device.new(**found.first)])
+    end
+  end
+
   it "does not send the reasoning again after it was streamed" do
     result = { "reasoning" => "Greet the user.", "content" => "Hi!", "tool_calls" => [] }
 

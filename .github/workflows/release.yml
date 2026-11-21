@@ -161,6 +161,7 @@ jobs:
       - run: bin/bare-host
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+      - run: bin/model-for-this-host
       - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: smollm2-135M.gguf
@@ -236,6 +237,7 @@ jobs:
       - run: test "$(ruby -e 'print Gem::Platform.local')" = x86_64-linux-musl
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-x86_64-linux-musl.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x86_64-linux-musl.gem
+      - run: bin/model-for-this-host
       - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: smollm2-135M.gguf
@@ -342,6 +344,7 @@ jobs:
       - run: >-
           bin/without-compilers bin/platform-check "$PWD/stories260K.gguf" ${{ matrix.backend }}
           "$PWD"/elelem-llama-*-${{ matrix.platform }}.gem
+      - run: bin/model-for-this-host
       - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: smollm2-135M.gguf
@@ -432,6 +435,7 @@ jobs:
       - run: ruby -r ./ext/elelem/llama/search_path -e 'exit Elelem::Llama::SearchPath.new.include?("ruby")'
       - run: ruby bin/notices-in-the-gem "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
       - run: bin/platform-check "$PWD/stories260K.gguf" cpu "$PWD"/elelem-llama-*-x64-mingw-ucrt.gem
+      - run: bin/model-for-this-host
       - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: smollm2-135M.gguf

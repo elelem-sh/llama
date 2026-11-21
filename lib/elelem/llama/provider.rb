@@ -13,6 +13,10 @@ module Elelem
 
       def self.backend = functions[:backend].call.to_s.then { BACKENDS.fetch(it, &:downcase) }
 
+      def self.devices
+        JSON.parse(functions[:devices].call.to_s, symbolize_names: true).map { Device.new(**it) }
+      end
+
       class << self
         attr_writer :functions
       end
@@ -28,6 +32,7 @@ module Elelem
           start(lib)
           {
             backend: Fiddle::Function.new(lib["el_backend"], [], V),
+            devices: Fiddle::Function.new(lib["el_devices"], [], V),
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I, Fiddle::TYPE_LONG_LONG], V),
             survey: Fiddle::Function.new(lib["el_survey"], [V, Fiddle::TYPE_LONG_LONG], V),
             settings: Fiddle::Function.new(lib["el_settings"], [V], V),
