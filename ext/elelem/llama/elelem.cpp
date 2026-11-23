@@ -144,6 +144,17 @@ extern "C" {
     try { return std::stoi(raw); } catch (...) { return fallback; }
   }
 
+  // ELELEM_THINKING=off closes a thinking model's reasoning before it starts
+  // (an empty <think></think> for Qwen3), so replies begin at once. Anything
+  // else leaves the template's default, which thinks.
+  static bool el_thinking() {
+    const char *raw = std::getenv("ELELEM_THINKING");
+    std::string v = raw ? raw : "";
+    std::transform(v.begin(), v.end(), v.begin(),
+        [](unsigned char c) { return (char) std::tolower(c); });
+    return !(v == "off" || v == "0" || v == "false" || v == "no");
+  }
+
   static std::mutex el_fitting;
 
   static llama_context_params el_context_params() {
@@ -545,6 +556,7 @@ extern "C" {
     inputs.add_generation_prompt = true;
     inputs.use_jinja = true;
     inputs.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
+    inputs.enable_thinking = el_thinking();
     common_chat_params cparams;
     try {
       inputs.messages = build_msgs(json::parse(messages_json));
