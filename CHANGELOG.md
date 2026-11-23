@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/elelem-sh/llama/compare/v0.9.1...v0.10.0) (2026-11-23)
+
+
+### Features
+
+* choose the largest pinned model that fits the memory of this machine ([db9c25e](https://github.com/elelem-sh/llama/commit/db9c25ef95232ef6e58b183de23c9dcc72ffb16f))
+* turn thinking off with ELELEM_THINKING=off so replies start at once ([63d940b](https://github.com/elelem-sh/llama/commit/63d940b156f8021baf27c564a6131daf62870610))
+
 ## [0.9.1](https://github.com/elelem-sh/llama/compare/v0.9.0...v0.9.1) (2026-11-20)
 
 
