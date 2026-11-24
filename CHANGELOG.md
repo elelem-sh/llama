@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.11.0](https://github.com/elelem-sh/llama/compare/v0.10.0...v0.11.0) (2026-11-24)
+
+
+### Features
+
+* report the loaded model file so the banner can name it ([a41aa78](https://github.com/elelem-sh/llama/commit/a41aa78070e41aeec3497cdff46b1b873245569a))
+* say which model is loading and how big it is before the weights load ([a4f8dad](https://github.com/elelem-sh/llama/commit/a4f8dadcd83bb28cf490a2a842ff95f4eac6617b))
+* think only with ELELEM_THINKING=on, open a 32K context, cap replies at 4096 tokens and drop the model catalog ([0bb191d](https://github.com/elelem-sh/llama/commit/0bb191df1cee8ba8969a047358fc2f6ab5d43583))
+
+
+### Bug Fixes
+
+* name the file a default.gguf link points to when loading it ([78a360c](https://github.com/elelem-sh/llama/commit/78a360c790117450b62cd8983a413ab13da67049))
+* raise Ctrl-C inside the token callback, stop prefill between 128-token chunks and name models with non-ASCII paths under any locale ([5f19a1f](https://github.com/elelem-sh/llama/commit/5f19a1f9b5a6405f62edee43470b1bbf07bf4c02))
+* release the GVL while generating so the waiting dots animate ([9d39dd6](https://github.com/elelem-sh/llama/commit/9d39dd624e045f49f3169a0f475e823216ac5e15))
+* stop generating when Ctrl-C is pressed instead of finishing the reply first ([227ba69](https://github.com/elelem-sh/llama/commit/227ba69e48c50abbe57b9ec2a78817ad457fb20c))
+
 ## [0.10.0](https://github.com/elelem-sh/llama/compare/v0.9.1...v0.10.0) (2026-11-23)
 
 
