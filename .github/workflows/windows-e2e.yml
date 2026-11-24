@@ -1,17 +1,19 @@
 name: Windows e2e
 
 on:
+  schedule:
+    - cron: "23 10 * * 3"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  ask:
+  chat:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      ELELEM_GGUF_MODEL: ${{ github.workspace }}\Qwen3-4B-UD-Q4_K_XL.gguf
+      ELELEM_GGUF_MODEL: ${{ github.workspace }}\Qwen3.5-4B-Q4_K_M.gguf
     steps:
       - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
         with:
@@ -37,11 +39,13 @@ jobs:
       - id: model
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
-          path: Qwen3-4B-UD-Q4_K_XL.gguf
-          key: qwen3-4b-22c9fc8a
+          path: Qwen3.5-4B-Q4_K_M.gguf
+          key: qwen3.5-4b-e87f1764
       - if: steps.model.outputs.cache-hit != 'true'
         shell: bash
-        run: curl -fsSL -o Qwen3-4B-UD-Q4_K_XL.gguf https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/22c9fc8a8c7700b76a1789366280a6a5a1ad1120/Qwen3-4B-UD-Q4_K_XL.gguf
+        run: >-
+          curl -fsSL -o Qwen3.5-4B-Q4_K_M.gguf
+          https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf
       - shell: bash
         env:
           ELELEM_CMD_TIMEOUT: "60"
@@ -49,6 +53,6 @@ jobs:
           nonce=$(ruby -rsecurerandom -e 'print SecureRandom.hex')
           printf %s "$nonce" > nonce.txt
           started=$SECONDS
-          elelem-shell ask "Run the command: cat nonce.txt and tell me what it prints" </dev/null | tee said.txt
+          elelem-shell "Run the command: cat nonce.txt and tell me what it prints" </dev/null | tee said.txt
           echo "tool call took $((SECONDS - started)) s"
           grep -q "$nonce" said.txt || { echo "the answer does not contain the nonce" >&2; exit 1; }
