@@ -10,7 +10,6 @@ require_relative "llama/device"
 require_relative "llama/host"
 require_relative "llama/host_memory"
 require_relative "llama/load_library"
-require_relative "llama/model_choice"
 require_relative "llama/model_resolver"
 require_relative "llama/settings"
 require_relative "llama/shim"
@@ -25,7 +24,7 @@ Elelem.configure do |config|
       n_ctx: Integer(ENV.fetch("ELELEM_GGUF_N_CTX", "0")),
       n_threads: Integer(ENV.fetch("ELELEM_GGUF_THREADS", "0")),
       n_gpu_layers: Integer(ENV.fetch("ELELEM_GGUF_N_GPU_LAYERS", "-1")),
-      max_tokens: Integer(ENV.fetch("ELELEM_GGUF_MAX_TOKENS", "0")),
+      max_tokens: Integer(ENV.fetch("ELELEM_GGUF_MAX_TOKENS", "4096")),
       temp: Float(ENV.fetch("ELELEM_GGUF_TEMP", "0.7")),
       seed: Integer(ENV.fetch("ELELEM_GGUF_SEED", "-1"))
     )

@@ -34,7 +34,6 @@ module Elelem
             backend: Fiddle::Function.new(lib["el_backend"], [], V),
             devices: Fiddle::Function.new(lib["el_devices"], [], V),
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I, Fiddle::TYPE_LONG_LONG], V),
-            survey: Fiddle::Function.new(lib["el_survey"], [V, Fiddle::TYPE_LONG_LONG], V),
             settings: Fiddle::Function.new(lib["el_settings"], [V], V),
             generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I, V, V], V, need_gvl: true),
             close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID)
@@ -58,13 +57,11 @@ module Elelem
                      memory: HostMemory.detect)
         @max_tokens = max_tokens
         budget = memory.budget
-        choice = survey(model, budget) if n_ctx.zero? && n_gpu_layers.negative?
-        n_ctx = choice.n_ctx if choice
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed, budget)
         raise "llama: failed to load model at #{model}" if @handle.null?
 
         self.class.close_at_exit(@handle)
-        Elelem.logger.debug { "llama: #{[settings, choice].compact.join("; ")}" }
+        Elelem.logger.debug { "llama: #{settings}" }
 
         @streamed = false
         @block = nil
@@ -135,11 +132,6 @@ module Elelem
       end
 
       private
-
-      def survey(model, budget)
-        found = JSON.parse(self.class.functions[:survey].call(model, budget).to_s, symbolize_names: true)
-        ContextChoice.new(**found) unless found.empty?
-      end
 
       def parse(raw)
         JSON.parse(raw.to_s)

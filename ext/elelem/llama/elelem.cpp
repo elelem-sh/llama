@@ -112,6 +112,7 @@ extern "C" {
   }
 
   static const uint32_t EL_MIN_CTX = 4096;
+  static const uint32_t EL_DEFAULT_CTX = 32768;
   static const int64_t EL_DEVICE_MARGIN = 1024LL * 1024 * 1024;
 
   // Quantized K/V cache trades a little quality for a lot less memory
@@ -144,15 +145,15 @@ extern "C" {
     try { return std::stoi(raw); } catch (...) { return fallback; }
   }
 
-  // ELELEM_THINKING=off closes a thinking model's reasoning before it starts
-  // (an empty <think></think> for Qwen3), so replies begin at once. Anything
-  // else leaves the template's default, which thinks.
+  // Thinking is off unless ELELEM_THINKING=on: the template closes a thinking
+  // model's reasoning before it starts (an empty <think></think> for Qwen3), so
+  // replies begin at once on a CPU.
   static bool el_thinking() {
     const char *raw = std::getenv("ELELEM_THINKING");
     std::string v = raw ? raw : "";
     std::transform(v.begin(), v.end(), v.begin(),
         [](unsigned char c) { return (char) std::tolower(c); });
-    return !(v == "off" || v == "0" || v == "false" || v == "no");
+    return v == "on" || v == "1" || v == "true" || v == "yes";
   }
 
   static std::mutex el_fitting;
@@ -424,7 +425,7 @@ extern "C" {
     int64_t host_budget = el_host_budget(memory_budget);
 
     auto placement = std::make_unique<el_placement>();
-    placement->cp.n_ctx = (uint32_t) std::max(n_ctx, 0);
+    placement->cp.n_ctx = n_ctx > 0 ? (uint32_t) n_ctx : EL_DEFAULT_CTX;
     placement->cp.n_threads = threads;
     placement->cp.n_threads_batch = threads;
 
@@ -436,11 +437,12 @@ extern "C" {
       } else {
         if (n_gpu_layers == 0) placement->use_cpu_only();
         else placement->mp.n_gpu_layers = std::max(n_gpu_layers, 0);
-        if (n_ctx <= 0) placement->cp.n_ctx = el_context_within(path, *placement, host_budget, false);
       }
 
       model = llama_model_load_from_file(path, placement->mp);
       if (!model) return nullptr;
+      uint32_t trained = (uint32_t) std::max(llama_model_n_ctx_train(model), 0);
+      if (n_ctx <= 0 && trained > 0) placement->cp.n_ctx = std::min(placement->cp.n_ctx, trained);
 
       auto tmpls = common_chat_templates_init(model, "");
 
@@ -586,8 +588,8 @@ extern "C" {
     if (h->temp <= 0.0f) {
       llama_sampler_chain_add(smpl.get(), llama_sampler_init_greedy());
     } else {
-      int top_k = el_env_int("ELELEM_TOP_K", 40);
-      double top_p = el_env_double("ELELEM_TOP_P", 0.95);
+      int top_k = el_env_int("ELELEM_TOP_K", 20);
+      double top_p = el_env_double("ELELEM_TOP_P", 0.8);
       int penalty_last_n = el_env_int("ELELEM_REPEAT_LAST_N", 0); // 0 = disabled, matches llama.cpp default
       double penalty_repeat = el_env_double("ELELEM_REPEAT_PENALTY", 1.0); // 1.0 = disabled
 
