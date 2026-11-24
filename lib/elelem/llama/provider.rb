@@ -8,6 +8,7 @@ module Elelem
       V = Fiddle::TYPE_VOIDP
       I = Fiddle::TYPE_INT
       F = Fiddle::TYPE_FLOAT
+      ADDRESS = Fiddle::TYPE_UINTPTR_T
 
       BACKENDS = { "MTL" => "metal", "ROCm" => "hip" }.freeze
 
@@ -56,7 +57,7 @@ module Elelem
       def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 0, n_gpu_layers: -1, temp: 0.7, seed: -1,
                      memory: HostMemory.detect, err: $stderr)
         @max_tokens = max_tokens
-        @model = File.basename(File.exist?(model) ? File.realpath(model) : model)
+        @model = File.basename(File.exist?(model) ? File.realpath(model) : model).dup.force_encoding(Encoding::UTF_8).scrub
         budget = memory.budget
         announce(model, err)
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed, budget)
@@ -74,7 +75,10 @@ module Elelem
         # The shim also calls it with an empty piece while it has no text, which
         # is when Ruby gets to raise an Interrupt. Nothing may unwind through the
         # shim, so whatever is raised is kept for fetch and the shim told to stop.
-        @on_token = Fiddle::Closure::BlockCaller.new(I, [V, V]) do |_userdata, piece|
+        # The arguments are integers, not pointers: fiddle converts a pointer
+        # argument by calling into Ruby before the block starts, and an Interrupt
+        # raised there would escape the rescue below and unwind through the shim.
+        @on_token = Fiddle::Closure::BlockCaller.new(I, [ADDRESS, ADDRESS]) do |_userdata, piece|
           @failure ? 1 : stream(piece)
         rescue Exception => e # rubocop:disable Lint/RescueException
           @failure = e

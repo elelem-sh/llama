@@ -193,6 +193,14 @@ RSpec.describe Elelem::Llama::Provider do
     expect(described_class.new(model: "/models/qwen.gguf").model).to eq("qwen.gguf")
   end
 
+  it "names a model whose path came back as bytes, as file names do under LANG=C" do
+    err = StringIO.new
+    provider = described_class.new(model: "/models/\u6a21.gguf".b, err:)
+
+    expect(provider.model).to eq("\u6a21.gguf")
+    expect(err.string).to eq("loading \u6a21.gguf…\n")
+  end
+
   it "names the file a default.gguf link points to" do
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "qwen.gguf"), "")

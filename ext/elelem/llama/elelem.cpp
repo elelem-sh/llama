@@ -115,6 +115,7 @@ extern "C" {
 
   static const uint32_t EL_MIN_CTX = 4096;
   static const uint32_t EL_DEFAULT_CTX = 32768;
+  static const int EL_PREFILL_CHUNK = 128;
   static const int64_t EL_DEVICE_MARGIN = 1024LL * 1024 * 1024;
 
   // Quantized K/V cache trades a little quality for a lot less memory
@@ -637,7 +638,9 @@ extern "C" {
       return buf.c_str();
     };
 
-    const int n_batch = (int) llama_n_ubatch(ctx);
+    // Small chunks so the heartbeat between them lets Ctrl-C land within a
+    // fraction of a second on a CPU; llama_decode can't be interrupted.
+    const int n_batch = std::min((int) llama_n_ubatch(ctx), EL_PREFILL_CHUNK);
     for (int i = n_match; i < n_prompt; i += n_batch) {
       if (on_token && on_token(userdata, "")) return cancelled();
       int n = std::min(n_batch, n_prompt - i);
