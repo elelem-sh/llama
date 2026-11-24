@@ -189,6 +189,19 @@ RSpec.describe Elelem::Llama::Provider do
     end
   end
 
+  it "names the model file it loaded" do
+    expect(described_class.new(model: "/models/qwen.gguf").model).to eq("qwen.gguf")
+  end
+
+  it "names the file a default.gguf link points to" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "qwen.gguf"), "")
+      File.symlink("qwen.gguf", File.join(dir, "default.gguf"))
+
+      expect(described_class.new(model: File.join(dir, "default.gguf")).model).to eq("qwen.gguf")
+    end
+  end
+
   it "says which model it loads even when it cannot see the file" do
     err = StringIO.new
     described_class.new(model: "a.gguf", err:)

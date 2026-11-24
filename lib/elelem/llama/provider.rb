@@ -56,6 +56,7 @@ module Elelem
       def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 0, n_gpu_layers: -1, temp: 0.7, seed: -1,
                      memory: HostMemory.detect, err: $stderr)
         @max_tokens = max_tokens
+        @model = File.basename(File.exist?(model) ? File.realpath(model) : model)
         budget = memory.budget
         announce(model, err)
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed, budget)
@@ -131,6 +132,8 @@ module Elelem
           tool_call
         end
       end
+
+      attr_reader :model
 
       def settings
         Settings.new(**JSON.parse(self.class.functions[:settings].call(@handle).to_s, symbolize_names: true))
