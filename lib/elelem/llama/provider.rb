@@ -54,9 +54,10 @@ module Elelem
       end
 
       def initialize(model:, n_ctx: 0, n_threads: 0, max_tokens: 0, n_gpu_layers: -1, temp: 0.7, seed: -1,
-                     memory: HostMemory.detect)
+                     memory: HostMemory.detect, err: $stderr)
         @max_tokens = max_tokens
         budget = memory.budget
+        announce(model, err)
         @handle = self.class.functions[:open].call(model, n_gpu_layers, n_ctx, n_threads, temp, seed, budget)
         raise "llama: failed to load model at #{model}" if @handle.null?
 
@@ -136,6 +137,11 @@ module Elelem
       end
 
       private
+
+      def announce(model, err)
+        size = File.size?(model)
+        err.puts "loading #{File.basename(model)}#{format(" (%.1f GB)", size / 1e9) if size}…"
+      end
 
       def stream(piece)
         text = Fiddle::Pointer.new(piece).to_s.force_encoding(Encoding::UTF_8).scrub

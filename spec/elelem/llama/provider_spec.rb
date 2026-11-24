@@ -15,9 +15,12 @@ RSpec.describe Elelem::Llama::Provider do
       close: ->(_handle) {}
     }
     described_class.instance_variable_set(:@shared, nil)
+    @stderr = $stderr
+    $stderr = StringIO.new
   end
 
   after do
+    $stderr = @stderr
     described_class.functions = nil
     described_class.instance_variable_set(:@shared, nil)
   end
@@ -172,6 +175,25 @@ RSpec.describe Elelem::Llama::Provider do
     described_class.new(model: "a.gguf", n_gpu_layers: 20)
 
     expect(opened.map { it[1..2] }).to eq([[-1, 8192], [20, 0]])
+  end
+
+  it "says which model it loads and how big it is before loading it" do
+    Dir.mktmpdir do |dir|
+      model = File.join(dir, "m.gguf")
+      File.open(model, "w") { it.truncate(2_700_000_000) }
+      err = StringIO.new
+
+      described_class.new(model:, err:)
+
+      expect(err.string).to eq("loading m.gguf (2.7 GB)…\n")
+    end
+  end
+
+  it "says which model it loads even when it cannot see the file" do
+    err = StringIO.new
+    described_class.new(model: "a.gguf", err:)
+
+    expect(err.string).to eq("loading a.gguf…\n")
   end
 
   it "opens the model with the memory budget of the host" do
