@@ -34,7 +34,9 @@ extern "C" {
     std::unique_ptr<el_placement> placement;
   };
 
-  typedef void (*el_token_cb)(void *userdata, const char *piece);
+  // Called with reasoning text as it streams, and with an empty piece as a
+  // heartbeat while there is none. A nonzero return cancels the generation.
+  typedef int (*el_token_cb)(void *userdata, const char *piece);
 
   // Returns the length of the prefix of `s` that ends on a complete UTF-8
   // sequence, so callers don't flush a truncated multi-byte codepoint.
@@ -630,8 +632,14 @@ extern "C" {
     h->cached.resize(n_match);
     auto t1 = std::chrono::steady_clock::now();
 
-    const int n_batch = (int) llama_n_batch(ctx);
+    auto cancelled = [&]() {
+      buf = json{{"cancelled", true}}.dump();
+      return buf.c_str();
+    };
+
+    const int n_batch = (int) llama_n_ubatch(ctx);
     for (int i = n_match; i < n_prompt; i += n_batch) {
+      if (on_token && on_token(userdata, "")) return cancelled();
       int n = std::min(n_batch, n_prompt - i);
       if (llama_decode(ctx, llama_batch_get_one(tokens.data() + i, n)) != 0) {
         return el_error(buf, "failed to evaluate prompt (llama_decode failed at token " + std::to_string(i) + " of " + std::to_string(n_prompt) + ")");
@@ -652,12 +660,13 @@ extern "C" {
     std::string output;
     std::string sent;
     auto stream_reasoning = [&](const std::string &reasoning) {
-      if (reasoning.size() <= sent.size() || reasoning.compare(0, sent.size(), sent) != 0) return;
-      std::string chunk = reasoning.substr(sent.size());
-      chunk.resize(el_utf8_safe_len(chunk));
-      if (chunk.empty()) return;
-      on_token(userdata, chunk.c_str());
+      std::string chunk;
+      if (reasoning.size() > sent.size() && reasoning.compare(0, sent.size(), sent) == 0) {
+        chunk = reasoning.substr(sent.size());
+        chunk.resize(el_utf8_safe_len(chunk));
+      }
       sent += chunk;
+      return on_token(userdata, chunk.c_str()) != 0;
     };
     bool dirty = false;
     char piece[512];
@@ -674,15 +683,17 @@ extern "C" {
         dirty = true;
       }
       n_decoded++;
-      if (on_token && dirty) {
+      if (on_token) {
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration<double, std::milli>(now - last_flush).count() >= 50.0) {
+          std::string reasoning;
           try {
-            stream_reasoning(common_chat_parse(common_chat_input(output.substr(0, el_utf8_safe_len(output))), true, pp).reasoning_content);
+            if (dirty) reasoning = common_chat_parse(common_chat_input(output.substr(0, el_utf8_safe_len(output))), true, pp).reasoning_content;
           } catch (const std::exception &) {
           }
           dirty = false;
           last_flush = now;
+          if (stream_reasoning(reasoning)) return cancelled();
         }
       }
       if (t + 1 < budget && llama_decode(ctx, llama_batch_get_one(&id, 1)) != 0) {

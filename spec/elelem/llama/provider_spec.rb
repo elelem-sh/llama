@@ -22,11 +22,11 @@ RSpec.describe Elelem::Llama::Provider do
     described_class.instance_variable_set(:@shared, nil)
   end
 
-  def generating(result, pieces: [])
+  def generating(result, pieces: [], stops: [])
     keep = []
     lambda do |_handle, _messages, _tools, _max_tokens, on_token, _userdata|
-      callback = Fiddle::Function.new(on_token, [Fiddle::TYPE_VOIDP, Fiddle::TYPE_VOIDP], Fiddle::TYPE_VOID)
-      pieces.each { |piece| callback.call(nil, piece) }
+      callback = Fiddle::Function.new(on_token, [Fiddle::TYPE_VOIDP, Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT)
+      pieces.each { |piece| stops << callback.call(nil, piece) }
       keep << Fiddle::Pointer[JSON.generate(result)]
       keep.last
     end
@@ -103,6 +103,41 @@ RSpec.describe Elelem::Llama::Provider do
                                                                  { type: "thinking", text: "Greet the user." },
                                                                  { type: "saying", text: "Hi!" }
                                                                ])
+  end
+
+  it "does not send the heartbeats between pieces as text" do
+    result = { "reasoning" => "Greet the user.", "content" => "Hi!", "tool_calls" => [] }
+    stops = []
+
+    events = events_for(generating(result, pieces: ["", "Greet ", "", "the user."], stops: stops))
+
+    expect(events.map { it[:text] }).to eq(["Greet ", "the user.", "Hi!"])
+    expect(stops).to eq([0, 0, 0, 0])
+  end
+
+  it "tells the shim to stop once the block raises, and raises that after generating" do
+    stops = []
+    described_class.functions[:generate] = generating({ "cancelled" => true }, pieces: ["Greet ", "", "the user."],
+                                                                               stops: stops)
+    seen = []
+
+    expect do
+      described_class.new(model: "a.gguf").fetch([]) { |event| seen << event and raise Interrupt }
+    end.to raise_error(Interrupt)
+    expect(stops).to eq([1, 1, 1])
+    expect(seen).to eq([{ type: "thinking", text: "Greet " }])
+  end
+
+  it "generates again after a reply that was stopped" do
+    provider = described_class.new(model: "a.gguf")
+    described_class.functions[:generate] = generating({ "cancelled" => true }, pieces: ["Greet "])
+    expect { provider.fetch([]) { raise "the terminal is gone" } }.to raise_error("the terminal is gone")
+
+    described_class.functions[:generate] = generating({ "content" => "Hi!", "tool_calls" => [] }, pieces: [""])
+    events = []
+    provider.fetch([]) { |event| events << event }
+
+    expect(events).to eq([{ type: "saying", text: "Hi!" }])
   end
 
   it "sends only the answer when the model does not reason" do

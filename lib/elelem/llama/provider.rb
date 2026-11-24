@@ -68,24 +68,28 @@ module Elelem
         # Built once: each Fiddle::Closure::BlockCaller allocates a native FFI
         # trampoline, and el_generate's reentrancy guard already prevents
         # concurrent native calls on this handle, so one instance is safe to reuse.
-        @on_token = Fiddle::Closure::BlockCaller.new(Fiddle::TYPE_VOID, [V, V]) do |_userdata, piece|
-          text = Fiddle::Pointer.new(piece).to_s.force_encoding(Encoding::UTF_8).scrub
-          next if text.empty?
-
-          @streamed = true
-          @block&.call(type: "thinking", text: text)
+        #
+        # The shim also calls it with an empty piece while it has no text, which
+        # is when Ruby gets to raise an Interrupt. Nothing may unwind through the
+        # shim, so whatever is raised is kept for fetch and the shim told to stop.
+        @on_token = Fiddle::Closure::BlockCaller.new(I, [V, V]) do |_userdata, piece|
+          @failure ? 1 : stream(piece)
         rescue Exception => e # rubocop:disable Lint/RescueException
-          Elelem.logger.warn("llama: streaming callback failed: #{e.message}")
+          @failure = e
+          1
         end
       end
 
       def fetch(messages, tools = [], &block)
         @streamed = false
         @block = block
+        @failure = nil
 
         ptr = self.class.functions[:generate].call(
           @handle, JSON.generate(messages), JSON.generate(tools), @max_tokens, @on_token, nil
         )
+        raise @failure if @failure
+
         result = JSON.parse(Fiddle::Pointer.new(ptr).to_s)
 
         Elelem.logger.debug("llama: tool-call fallback used") if result["fallback"]
@@ -132,6 +136,15 @@ module Elelem
       end
 
       private
+
+      def stream(piece)
+        text = Fiddle::Pointer.new(piece).to_s.force_encoding(Encoding::UTF_8).scrub
+        return 0 if text.empty?
+
+        @streamed = true
+        @block&.call(type: "thinking", text: text)
+        0
+      end
 
       def parse(raw)
         JSON.parse(raw.to_s)
