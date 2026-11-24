@@ -35,7 +35,7 @@ module Elelem
             devices: Fiddle::Function.new(lib["el_devices"], [], V),
             open: Fiddle::Function.new(lib["el_open"], [V, I, I, I, F, I, Fiddle::TYPE_LONG_LONG], V),
             settings: Fiddle::Function.new(lib["el_settings"], [V], V),
-            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I, V, V], V, need_gvl: true),
+            generate: Fiddle::Function.new(lib["el_generate"], [V, V, V, I, V, V], V, need_gvl: false),
             close: Fiddle::Function.new(lib["el_close"], [V], Fiddle::TYPE_VOID)
           }
         end

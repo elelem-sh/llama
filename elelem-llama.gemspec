@@ -80,6 +80,6 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "elelem", ">= 0.13", "< 1"
-  spec.add_dependency "fiddle", "~> 1.1"
+  spec.add_dependency "fiddle", "~> 1.1", ">= 1.1.8"
   spec.add_dependency "json", ">= 2.18"
 end
