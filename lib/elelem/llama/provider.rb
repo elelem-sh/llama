@@ -143,7 +143,7 @@ module Elelem
 
       def announce(model, err)
         size = File.size?(model)
-        err.puts "loading #{File.basename(model)}#{format(" (%.1f GB)", size / 1e9) if size}…"
+        err.puts "loading #{@model}#{format(" (%.1f GB)", size / 1e9) if size}…"
       end
 
       def stream(piece)
