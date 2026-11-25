@@ -79,7 +79,8 @@ jobs:
           curl.exe -fL -o $HOME\.agents\models\Qwen3.5-4B-Q4_K_M.gguf https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf
           $env:ELELEM_GGUF_MODEL = "$HOME\.agents\models\Qwen3.5-4B-Q4_K_M.gguf"
           $nonce = [guid]::NewGuid().ToString('N')
-          Set-Content -NoNewline nonce.txt $nonce
+          Set-Content -Path nonce.txt -Value $nonce -NoNewline
+          if ((Get-Content -Raw nonce.txt) -ne $nonce) { throw 'nonce.txt does not hold the nonce' }
           $said = $null | elelem-shell "Read nonce.txt and tell me exactly what it says." | Out-String
           $said
           if (-not $said.Contains($nonce)) { throw "the answer does not contain the nonce $nonce" }
