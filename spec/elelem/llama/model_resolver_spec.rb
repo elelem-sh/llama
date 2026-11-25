@@ -23,6 +23,10 @@ RSpec.describe Elelem::Llama::ModelResolver do
     expect(resolve(env: { "ELELEM_GGUF_MODEL" => " " })).to eq(File.join(@models_dir, "only.gguf"))
   end
 
+  it "keeps an ELELEM_GGUF_MODEL that is not valid UTF-8 as it is" do
+    expect(resolve(env: { "ELELEM_GGUF_MODEL" => "/m/\xFF.gguf " })).to eq("/m/\xFF.gguf ")
+  end
+
   context "with no explicit model or ENV" do
     it "picks the only .gguf file in the models dir" do
       FileUtils.touch(File.join(@models_dir, "only.gguf"))

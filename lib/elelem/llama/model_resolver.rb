@@ -8,7 +8,7 @@ module Elelem
       end
 
       def self.named(env)
-        env["ELELEM_GGUF_MODEL"].to_s.strip.then { |path| path unless path.empty? }
+        env["ELELEM_GGUF_MODEL"].then { it unless it.to_s.b.strip.empty? }
       end
       private_class_method :named
 
