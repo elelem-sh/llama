@@ -19,7 +19,7 @@ module Elelem
 
       def quant?(quant) = @path.sub(SHARD, "").match?(/(\A|[-._])#{Regexp.escape(quant)}\.gguf\z/i)
 
-      def to_s = @path
+      def to_s = @path.dump
     end
   end
 end

@@ -80,6 +80,7 @@ RSpec.describe Elelem::Llama::Pull do
 
     expect(File.readlink(saved("default.gguf"))).to eq("mine.gguf")
     expect(output.string).to include("--default")
+    expect(output.string).not_to include("warning")
   end
 
   it "replaces the default when told to" do
@@ -90,8 +91,16 @@ RSpec.describe Elelem::Llama::Pull do
     expect(File.readlink(saved("default.gguf"))).to eq("tiny-Q4_K_M.gguf")
   end
 
+  it "chooses no default where there is another model" do
+    put(saved("mine.gguf"), "mine")
+    pull("me/tiny")
+
+    expect(File.exist?(saved("default.gguf"))).to be(false)
+    expect(output.string).to include("pull again with --default", "warning: several models and no default")
+  end
+
   it "keeps a default that points at a model on an unmounted disk" do
-    put(saved("other.gguf"), "other")
+    FileUtils.mkdir_p(@dir)
     File.symlink("/unmounted/mine.gguf", saved("default.gguf"))
     pull("me/tiny")
 
@@ -224,6 +233,12 @@ RSpec.describe Elelem::Llama::Pull do
     expect(Elelem::Llama::FreeSpace.available(report)).to eq(600 * 1024)
   end
 
+  it "reads the free space of a mount point that the locale cannot read" do
+    report = "Filesystem\n/dev/sda1 1000 400 600 40% /M\xC3\xA9\n".dup.force_encoding(Encoding::US_ASCII)
+
+    expect(Elelem::Llama::FreeSpace.available(report)).to eq(600 * 1024)
+  end
+
   it "measures the free space of this machine" do
     expect(Elelem::Llama::FreeSpace.new.in(Dir.tmpdir)).to be_positive
   end
@@ -332,7 +347,7 @@ RSpec.describe Elelem::Llama::Pull do
   end
 
   it "names what a repository has when the quant is missing" do
-    expect { pull("me/tiny:Q2_K") }.to raise_error(/has no Q2_K model; it has tiny-Q4_K_M.gguf, tiny-Q8_0.gguf/)
+    expect { pull("me/tiny:Q2_K") }.to raise_error(/has no Q2_K model; it has "tiny-Q4_K_M.gguf", "tiny-Q8_0.gguf"/)
   end
 
   context "with a split model" do
@@ -343,12 +358,73 @@ RSpec.describe Elelem::Llama::Pull do
     end
   end
 
-  %w[../x-Q4_K_M.gguf dir/x-Q4_K_M.gguf C:x-Q4_K_M.gguf -x-Q4_K_M.gguf NUL.Q4_K_M.gguf].each do |unsafe|
-    context "with a file named #{unsafe}" do
+  ["../x-Q4_K_M.gguf", "dir/x-Q4_K_M.gguf", "C:x-Q4_K_M.gguf", "-x-Q4_K_M.gguf", "NUL.Q4_K_M.gguf", "x\\y-Q4_K_M.gguf",
+   "x y-Q4_K_M.gguf", "x\n-Q4_K_M.gguf", "x.gguf\n-Q4_K_M.gguf", "\e[2Jx-Q4_K_M.gguf"].each do |unsafe|
+    context "with a file named #{unsafe.dump}" do
       let(:files) { [unsafe] }
 
       it "refuses it" do
         expect { pull("me/tiny") }.to raise_error(/refusing the file name/)
+      end
+    end
+  end
+
+  it "refuses the name of the default model" do
+    expect(Elelem::Llama::GgufName.new("DEFAULT.gguf")).not_to be_safe
+    expect(Elelem::Llama::GgufName.new("my-default.gguf")).to be_safe
+  end
+
+  context "with control characters in the names" do
+    let(:files) { ["\e[2J-Q8_0.gguf", "\e]0;pwn\a-00001-of-00002.gguf"] }
+
+    it "escapes them" do
+      expect { pull("me/tiny:Q2_K") }.to raise_error(/\A[[:print:]]*\\e\[2J[[:print:]]*\z/)
+    end
+  end
+
+  context "with control characters in the name of a split model" do
+    let(:files) { ["\e[2J-Q4_K_M-00001-of-00002.gguf"] }
+
+    it "escapes them" do
+      expect { pull("me/tiny") }.to raise_error(/\A[[:print:]]*split model[[:print:]]*\z/)
+    end
+  end
+
+  context "with a proxy for https" do
+    around do |example|
+      names = %w[https_proxy HTTPS_PROXY http_proxy HTTP_PROXY no_proxy NO_PROXY]
+      before = ENV.to_h.slice(*names)
+      names.each { ENV.delete(it) }
+      example.run
+    ensure
+      names.each { ENV.delete(it) }
+      ENV.update(before)
+    end
+
+    it "goes through it" do
+      @origin = LocalOrigin.new { reply("407 Proxy Authentication Required") }
+      ENV["HTTPS_PROXY"] = "http://me:p%40ss@127.0.0.1:#{@origin.uri.port}"
+
+      expect { Elelem::Llama::Http.new.get(URI("https://models.example/")) { nil } }.to raise_error(/407/)
+      expect(@origin.requests.first.first).to eq("models.example:443")
+      expect(@origin.requests.first.last["proxy-authorization"]).to eq("Basic #{["me:p@ss"].pack("m0")}")
+    end
+
+    %w[https://me:secret@127.0.0.1 socks5://me:secret@127.0.0.1 localhost:1].each do |other|
+      it "refuses #{other}, sending it nothing" do
+        ENV["HTTPS_PROXY"] = other
+
+        expect { Elelem::Llama::Http.new.get(URI("https://models.example/")) { nil } }
+          .to raise_error("the proxy for models.example is not an http:// proxy")
+      end
+    end
+
+    %w[127.0.0.1:8080 http://me:secret%zz@127.0.0.1].each do |malformed|
+      it "refuses #{malformed} without printing it" do
+        ENV["HTTPS_PROXY"] = malformed
+
+        expect { Elelem::Llama::Http.new.get(URI("https://models.example/")) { nil } }
+          .to raise_error("the proxy for models.example is not a URL")
       end
     end
   end

@@ -24,7 +24,7 @@ module Elelem
         nil
       end
 
-      def self.available(report) = report.lines[1].to_s[/(\d+)\s+\d+%/, 1]&.then { Integer(it) * 1024 }
+      def self.available(report) = report.b.lines[1].to_s[/(\d+)\s+\d+%/, 1]&.then { Integer(it) * 1024 }
 
       def initialize(host: Host.new, windows: WINDOWS, unix: DF)
         @measure = host.windows? ? windows : unix

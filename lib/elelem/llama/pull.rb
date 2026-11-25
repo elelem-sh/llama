@@ -41,10 +41,11 @@ module Elelem
       def model = @model ||= @args.empty? ? PinnedModels.for(@memory) : @hub.find(ModelReference.parse(@args.first))
 
       def choose(path)
-        @default.point_at(path) if (@chosen || @default.missing?) && !@default.is?(path)
+        @default.point_at(path) if (@chosen || @default.sole?(path)) && !@default.is?(path)
         return @output.puts("elelem: #{path} is the default model") if @default.is?(path)
 
         @output.puts "elelem: saved #{path}; use it with --model #{path}, or pull again with --default"
+        @output.puts "warning: several models and no default; elelem stops until you choose one" if @default.missing?
       end
     end
   end

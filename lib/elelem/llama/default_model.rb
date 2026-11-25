@@ -17,6 +17,8 @@ module Elelem
 
       def missing? = !File.exist?(@link) && !File.symlink?(@link)
 
+      def sole?(model) = missing? && others == [model]
+
       def point_at(model)
         raise "#{@link} is a model and not a link; move it, then pull again" unless missing? || link?
 
