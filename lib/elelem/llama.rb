@@ -16,7 +16,7 @@ require_relative "llama/shim"
 require_relative "llama/provider"
 
 Elelem.configure do |config|
-  config.provider(:llama) do |model: nil, **|
+  llama = lambda do |model: nil, **|
     model_path = File.expand_path(Elelem::Llama::ModelResolver.resolve(model:))
 
     Elelem::Llama::Provider.shared(
@@ -29,4 +29,6 @@ Elelem.configure do |config|
       seed: Integer(ENV.fetch("ELELEM_GGUF_SEED", "-1"))
     )
   end
+
+  %i[llama default].each { |name| config.provider(name, &llama) }
 end
