@@ -17,6 +17,12 @@ RSpec.describe Elelem::Llama::ModelResolver do
     expect(resolve(env: { "ELELEM_GGUF_MODEL" => "/env.gguf" })).to eq("/env.gguf")
   end
 
+  it "ignores a blank ELELEM_GGUF_MODEL" do
+    FileUtils.touch(File.join(@models_dir, "only.gguf"))
+
+    expect(resolve(env: { "ELELEM_GGUF_MODEL" => " " })).to eq(File.join(@models_dir, "only.gguf"))
+  end
+
   context "with no explicit model or ENV" do
     it "picks the only .gguf file in the models dir" do
       FileUtils.touch(File.join(@models_dir, "only.gguf"))

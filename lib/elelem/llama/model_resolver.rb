@@ -4,8 +4,13 @@ module Elelem
   module Llama
     module ModelResolver
       def self.resolve(model:, env: ENV, models_dir: "~/.agents/models")
-        model || env.fetch("ELELEM_GGUF_MODEL") { default_model(models_dir) }
+        model || named(env) || default_model(models_dir)
       end
+
+      def self.named(env)
+        env["ELELEM_GGUF_MODEL"].to_s.strip.then { |path| path unless path.empty? }
+      end
+      private_class_method :named
 
       def self.default_model(models_dir)
         dir = File.expand_path(models_dir)
