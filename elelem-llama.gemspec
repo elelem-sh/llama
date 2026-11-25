@@ -8,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.authors = ["mo khan"]
   spec.email = ["mo@mokhan.ca"]
 
-  spec.summary = "A llama.cpp plugin for elelem."
-  spec.description = "A llama.cpp plugin for elelem."
+  spec.summary = "llama.cpp, inside the elelem process."
+  spec.description = "Runs GGUF models inside the elelem process through llama.cpp. No server, no network call."
   spec.homepage = "https://elelem.sh"
   spec.licenses = ["MIT"]
   spec.required_ruby_version = ">= 4.0.0"
