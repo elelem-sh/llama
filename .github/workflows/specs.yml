@@ -1,0 +1,39 @@
+name: Specs
+
+on:
+  push:
+    branches: [pull]
+
+permissions: {}
+
+jobs:
+  specs:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@3ff19f5e2baf30647122352b96108b1fbe250c64 # v1.299.0
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: Read the memory and free space of this machine
+        shell: bash
+        run: |
+          bundle exec ruby -Ilib -e '
+            require "elelem/llama/pull"
+            total = Elelem::Llama::HostMemory.detect.total
+            free = Elelem::Llama::FreeSpace.new.in(Dir.home)
+            puts "total #{total.inspect}, free #{free.inspect}"
+            abort "unknown" unless [total, free].all? { it.is_a?(Integer) && it > 1024**3 }
+          '
+      - if: always()
+        shell: bash
+        run: bundle exec rspec
