@@ -2,7 +2,7 @@ name: Specs
 
 on:
   push:
-    branches: [pull]
+    branches: [main]
 
 permissions: {}
 
