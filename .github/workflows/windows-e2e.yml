@@ -19,6 +19,22 @@ jobs:
         with:
           ruby-version: "4.0"
           windows-toolchain: none
+      - name: Keep a minidump of a ruby.exe that crashes
+        shell: pwsh
+        run: |
+          $key = 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\ruby.exe'
+          reg add $key /f /v DumpFolder /t REG_EXPAND_SZ /d "$env:RUNNER_TEMP\dumps"
+          reg add $key /f /v DumpType /t REG_DWORD /d 1
+          $wer = "$env:RUNNER_TEMP\wer.rb"
+          @'
+          begin
+            require "fiddle"
+            Fiddle::Function.new(Fiddle.dlopen("kernel32")["SetErrorMode"], [-Fiddle::TYPE_INT], -Fiddle::TYPE_INT).call(1)
+          rescue LoadError, StandardError => e
+            warn "crash reports stay off: #{e.message}"
+          end
+          '@ | Set-Content $wer
+          "RUBYOPT=-r$wer" >> $env:GITHUB_ENV
       - shell: pwsh
         run: |
           $kept = $env:PATH -split ';' | Where-Object { $_ -notmatch 'mingw64|msys64|Strawberry|LLVM|CMake|Chocolatey\\bin' }
@@ -56,6 +72,17 @@ jobs:
           elelem-shell "Run the command: cat nonce.txt and tell me what it prints" </dev/null | tee said.txt
           echo "tool call took $((SECONDS - started)) s"
           grep -q "$nonce" said.txt || { echo "the answer does not contain the nonce" >&2; exit 1; }
+      - if: failure()
+        shell: pwsh
+        run: wevtutil qe Application /rd:true /c:10 /f:text /q:"*[System[Provider[@Name='Application Error' or @Name='Windows Error Reporting']]]"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-dumps-${{ github.job }}
+          path: ${{ runner.temp }}/dumps
+          retention-days: 7
+          if-no-files-found: ignore
+          overwrite: true
 
   docs:
     runs-on: windows-latest
@@ -65,6 +92,22 @@ jobs:
         with:
           ruby-version: "4.0"
           windows-toolchain: none
+      - name: Keep a minidump of a ruby.exe that crashes
+        shell: pwsh
+        run: |
+          $key = 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\ruby.exe'
+          reg add $key /f /v DumpFolder /t REG_EXPAND_SZ /d "$env:RUNNER_TEMP\dumps"
+          reg add $key /f /v DumpType /t REG_DWORD /d 1
+          $wer = "$env:RUNNER_TEMP\wer.rb"
+          @'
+          begin
+            require "fiddle"
+            Fiddle::Function.new(Fiddle.dlopen("kernel32")["SetErrorMode"], [-Fiddle::TYPE_INT], -Fiddle::TYPE_INT).call(1)
+          rescue LoadError, StandardError => e
+            warn "crash reports stay off: #{e.message}"
+          end
+          '@ | Set-Content $wer
+          "RUBYOPT=-r$wer" >> $env:GITHUB_ENV
       - shell: pwsh
         run: |
           $kept = $env:PATH -split ';' | Where-Object { $_ -notmatch 'mingw64|msys64|Strawberry|LLVM|CMake|Chocolatey\\bin' }
@@ -84,3 +127,14 @@ jobs:
           $said = $null | elelem-shell "Read nonce.txt and tell me exactly what it says." | Out-String
           $said
           if (-not $said.Contains($nonce)) { throw "the answer does not contain the nonce $nonce" }
+      - if: failure()
+        shell: pwsh
+        run: wevtutil qe Application /rd:true /c:10 /f:text /q:"*[System[Provider[@Name='Application Error' or @Name='Windows Error Reporting']]]"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crash-dumps-${{ github.job }}
+          path: ${{ runner.temp }}/dumps
+          retention-days: 7
+          if-no-files-found: ignore
+          overwrite: true
