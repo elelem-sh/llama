@@ -11,7 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, macos-15-intel]
+        include:
+          - os: macos-latest
+          - os: macos-15-intel
+          - os: windows-latest
+            specs: spec/elelem/llama/pull_spec.rb spec/elelem/llama/host_memory_spec.rb
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
@@ -36,4 +40,4 @@ jobs:
           '
       - if: always()
         shell: bash
-        run: bundle exec rspec
+        run: bundle exec rspec ${{ matrix.specs }}

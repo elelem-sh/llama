@@ -19,10 +19,12 @@ module Elelem
 
       DF = lambda do |dir|
         report, status = Open3.capture2("df", "-Pk", dir)
-        report.lines[1].to_s[/(\d+)\s+\d+%/, 1]&.then { Integer(it) * 1024 } if status.success?
+        available(report) if status.success?
       rescue SystemCallError
         nil
       end
+
+      def self.available(report) = report.lines[1].to_s[/(\d+)\s+\d+%/, 1]&.then { Integer(it) * 1024 }
 
       def initialize(host: Host.new, windows: WINDOWS, unix: DF)
         @measure = host.windows? ? windows : unix

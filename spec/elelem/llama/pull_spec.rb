@@ -216,18 +216,16 @@ RSpec.describe Elelem::Llama::Pull do
   end
 
   it "reads the free space of a mount point with a space in its name" do
-    Dir.mktmpdir do |bin|
-      File.write(File.join(bin, "df"), <<~SH, perm: 0o755)
-        #!/bin/sh
-        echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'
-        echo '/dev/disk4s1 1000 400 600 40% /Volumes/My Disk'
-      SH
-      script = "print Elelem::Llama::FreeSpace::DF.call('/')"
-      source = File.expand_path("../../../lib/elelem/llama/free_space", __dir__)
-      free = IO.popen({ "PATH" => "#{bin}:#{ENV.fetch("PATH")}" }, [RbConfig.ruby, "-r#{source}", "-e", script], &:read)
+    report = <<~DF
+      Filesystem 1024-blocks Used Available Capacity Mounted on
+      /dev/disk4s1 1000 400 600 40% /Volumes/My Disk
+    DF
 
-      expect(free).to eq((600 * 1024).to_s)
-    end
+    expect(Elelem::Llama::FreeSpace.available(report)).to eq(600 * 1024)
+  end
+
+  it "measures the free space of this machine" do
+    expect(Elelem::Llama::FreeSpace.new.in(Dir.tmpdir)).to be_positive
   end
 
   it "resumes from what an earlier pull left" do
