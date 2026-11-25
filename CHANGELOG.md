@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.12.0](https://github.com/elelem-sh/llama/compare/v0.11.0...v0.12.0) (2026-11-25)
+
+
+### Features
+
+* download a model by name with elelem-llama --pull ([46a971d](https://github.com/elelem-sh/llama/commit/46a971d8ef1ae365797bd16a89201a48d4fa8ae1))
+* register llama as the default provider ([5339a33](https://github.com/elelem-sh/llama/commit/5339a33b1bbfbb0e0cdeafadace3399dfd64308e))
+
+
+### Bug Fixes
+
+* accept an ELELEM_GGUF_MODEL that is not valid UTF-8 ([ecf6936](https://github.com/elelem-sh/llama/commit/ecf6936e7295f2385b6caaff916dde99ae2fafb5))
+* escape names, use HTTPS_PROXY, read any locale and keep the default in --pull ([466c63e](https://github.com/elelem-sh/llama/commit/466c63ee744a016743ff652451570e9e4e163080))
+* parse the df report apart from running df ([f5397d5](https://github.com/elelem-sh/llama/commit/f5397d5e2b0c9446c5804b1b334765b5a469b3f4))
+* treat a blank ELELEM_GGUF_MODEL as unset ([fe46b35](https://github.com/elelem-sh/llama/commit/fe46b35e0a23ba8dabcea9d16912ef6ffc6e443c))
+
 ## [0.11.0](https://github.com/elelem-sh/llama/compare/v0.10.0...v0.11.0) (2026-11-24)
 
 
