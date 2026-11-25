@@ -101,7 +101,13 @@ RSpec.describe Elelem::Llama::HostMemory do
     end
 
     it "does not know when /proc is missing" do
-      expect(described_class.new(read: reading({})).available).to be_nil
+      memory = described_class.new(read: reading({}))
+
+      expect([memory.available, memory.total]).to eq([nil, nil])
+    end
+
+    it "reads the installed memory" do
+      expect(described_class.new(read: reading("/proc/meminfo" => meminfo)).total).to eq(32_512_992 * 1024)
     end
   end
 
@@ -122,6 +128,12 @@ RSpec.describe Elelem::Llama::HostMemory do
       memory = described_class.new(run: ->(command) { command == "vm_stat" ? vm_stat : "" })
 
       expect(memory.available).to eq(33_500 * 16_384)
+    end
+
+    it "reads the installed memory" do
+      memory = described_class.new(run: ->(command) { command == "sysctl -n hw.memsize" ? "#{16 * gib}\n" : "" })
+
+      expect(memory.total).to eq(16 * gib)
     end
 
     it "does not know when vm_stat is missing" do

@@ -9,7 +9,8 @@ Gem::Specification.new do |spec|
   spec.email = ["mo@mokhan.ca"]
 
   spec.summary = "llama.cpp, inside the elelem process."
-  spec.description = "Runs GGUF models inside the elelem process through llama.cpp. No server, no network call."
+  spec.description = "Runs GGUF models inside the elelem process through llama.cpp. No server, no network call " \
+                     "unless you pull a model."
   spec.homepage = "https://elelem.sh"
   spec.licenses = ["MIT"]
   spec.required_ruby_version = ">= 4.0.0"
@@ -23,12 +24,23 @@ Gem::Specification.new do |spec|
     "lib/elelem/llama.rb",
     "lib/elelem/llama/version.rb",
     "lib/elelem/llama/context_choice.rb",
+    "lib/elelem/llama/default_model.rb",
     "lib/elelem/llama/device.rb",
+    "lib/elelem/llama/download.rb",
+    "lib/elelem/llama/free_space.rb",
+    "lib/elelem/llama/gguf_name.rb",
     "lib/elelem/llama/host.rb",
     "lib/elelem/llama/host_memory.rb",
+    "lib/elelem/llama/http.rb",
+    "lib/elelem/llama/hub.rb",
     "lib/elelem/llama/load_library.rb",
+    "lib/elelem/llama/model_reference.rb",
     "lib/elelem/llama/model_resolver.rb",
+    "lib/elelem/llama/pinned_models.rb",
+    "lib/elelem/llama/progress.rb",
     "lib/elelem/llama/provider.rb",
+    "lib/elelem/llama/pull.rb",
+    "lib/elelem/llama/remote_model.rb",
     "lib/elelem/llama/settings.rb",
     "lib/elelem/llama/shim.rb",
     "exe/elelem-llama"

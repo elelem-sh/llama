@@ -18,6 +18,8 @@ module Elelem
 
       def available = nil
 
+      def total = nil
+
       def budget
         free = available or return UNKNOWN
 
@@ -37,6 +39,8 @@ module Elelem
         end
 
         def available = [system_wide, *cgroups.filter_map { headroom(it) }].compact.min
+
+        def total = kilobytes(read("/proc/meminfo"), "MemTotal")
 
         private
 
@@ -80,6 +84,12 @@ module Elelem
           page = report[/page size of (\d+) bytes/, 1] or return
 
           Integer(page) * RECLAIMABLE.sum { report[/^#{it}:\s+(\d+)/, 1].to_i }
+        rescue SystemCallError
+          nil
+        end
+
+        def total
+          Integer(@run.call("sysctl -n hw.memsize"), exception: false)
         rescue SystemCallError
           nil
         end
